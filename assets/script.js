@@ -13,6 +13,7 @@ const pauseBtn = document.getElementById("pause-btn");
 const finishBtn = document.getElementById("finish-btn");
 
 let watchId = null;
+let geoPermission = "prompt";
 let activeStartTime = null;
 let elapsedOffset = 0;
 let timerId = null;
@@ -24,6 +25,9 @@ let elevationGain = 0;
 let elevationLoss = 0;
 const isSecure =
     window.isSecureContext || window.location.hostname === "localhost";
+
+const MAX_SEGMENT_METERS = 150; // Ignore improbable jumps
+const MAX_ACCURACY_METERS = 40; // Skip low-accuracy fixes
 
 const logEvent = (message) => {
     const item = document.createElement("li");
@@ -97,7 +101,33 @@ const resetTrail = () => {
     logEvent("New trail session started.");
 };
 
+const sanitizeAltitude = (altitude) => {
+    return Number.isFinite(altitude) ? altitude : null;
+};
+
+const shouldUsePoint = (point) => {
+    if (!Number.isFinite(point.accuracy)) {
+        return true;
+    }
+    if (point.accuracy > MAX_ACCURACY_METERS) {
+        logEvent(
+            `Skipping point: accuracy ${point.accuracy.toFixed(
+                1
+            )}m exceeds threshold`
+        );
+        return false;
+    }
+    return true;
+};
+
 const startTracking = () => {
+    if (geoPermission === "denied") {
+        setStatus("Location access is blocked. Enable it in your browser settings to start tracking.");
+        alert("Location access is blocked. Please enable it in your browser or system settings.");
+        logEvent("Start blocked: geolocation permission denied.");
+        return;
+    }
+
     if (!isSecure) {
         setStatus("Enable HTTPS (or run on localhost) to use GPS features.");
         logEvent("Secure context required for geolocation.");
@@ -133,15 +163,32 @@ const startTracking = () => {
                 lng: longitude,
                 accuracy,
                 timestamp: position.timestamp,
-                altitude: Number.isFinite(altitude) ? altitude : 0,
+                altitude: sanitizeAltitude(altitude),
             };
+            if (!shouldUsePoint(point)) {
+                return;
+            }
             if (lastPoint) {
-                totalDistance += haversineDistance(lastPoint, point);
-                const altitudeDelta = point.altitude - lastPoint.altitude;
-                if (altitudeDelta > 0) {
-                    elevationGain += altitudeDelta;
-                } else if (altitudeDelta < 0) {
-                    elevationLoss += Math.abs(altitudeDelta);
+                const segment = haversineDistance(lastPoint, point);
+                if (segment <= MAX_SEGMENT_METERS) {
+                    totalDistance += segment;
+                } else {
+                    logEvent(
+                        `Discarded segment ${segment.toFixed(
+                            1
+                        )}m (too large, likely GPS jump)`
+                    );
+                }
+                if (
+                    point.altitude !== null &&
+                    lastPoint.altitude !== null
+                ) {
+                    const altitudeDelta = point.altitude - lastPoint.altitude;
+                    if (altitudeDelta > 0) {
+                        elevationGain += altitudeDelta;
+                    } else if (altitudeDelta < 0) {
+                        elevationLoss += Math.abs(altitudeDelta);
+                    }
                 }
             }
             lastPoint = point;
@@ -151,6 +198,10 @@ const startTracking = () => {
         (error) => {
             setStatus(`Error: ${error.message}`);
             logEvent(`Error: ${error.message}`);
+            if (error.code === error.PERMISSION_DENIED) {
+                geoPermission = "denied";
+                setStatus("Location access denied. Enable it in your browser settings to continue.");
+            }
         },
         {
             enableHighAccuracy: true,
@@ -213,7 +264,10 @@ const buildKml = () => {
 
     const name = `DaliTrail-${new Date(points[0].timestamp).toISOString()}`;
     const coordinates = points
-        .map(({ lng, lat, altitude }) => `${lng.toFixed(6)},${lat.toFixed(6)},${altitude.toFixed(1)}`)
+        .map(({ lng, lat, altitude }) => {
+            const altValue = Number.isFinite(altitude) ? altitude : 0;
+            return `${lng.toFixed(6)},${lat.toFixed(6)},${altValue.toFixed(1)}`;
+        })
         .join(" ");
 
     return `<?xml version="1.0" encoding="UTF-8"?>
@@ -298,4 +352,27 @@ if ("serviceWorker" in navigator) {
                 logEvent(`Service worker registration failed: ${error.message}`)
             );
     });
+}
+
+const updatePermissionBanner = () => {
+    if (geoPermission === "denied") {
+        setStatus("Location access denied. Enable it in your browser settings to continue.");
+        logEvent("Geolocation permission denied. Prompting user to enable it.");
+    }
+};
+
+if (navigator.permissions && navigator.permissions.query) {
+    navigator.permissions
+        .query({ name: "geolocation" })
+        .then((status) => {
+            geoPermission = status.state;
+            updatePermissionBanner();
+            status.onchange = () => {
+                geoPermission = status.state;
+                updatePermissionBanner();
+            };
+        })
+        .catch(() => {
+            // Permissions API unsupported or unavailable; rely on error callbacks.
+        });
 }
