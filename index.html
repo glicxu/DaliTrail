@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DaliTrail</title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="theme-color" content="#2b7ff6">
+    <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+    <main class="app">
+        <header>
+            <h1>DaliTrail</h1>
+            <p class="subtitle">Track your outdoor adventures and export to Google Earth.</p>
+        </header>
+
+        <section class="controls">
+            <button id="start-btn">Start</button>
+            <button id="pause-btn" disabled>Pause</button>
+            <button id="finish-btn" disabled>Finish</button>
+        </section>
+
+        <section class="status">
+            <h2>Status</h2>
+            <p id="status-text">Ready when you are.</p>
+            <p><strong>Points recorded:</strong> <span id="points-count">0</span></p>
+            <p><strong>Total distance:</strong> <span id="distance">0 m</span></p>
+            <p><strong>Elevation gain:</strong> <span id="elevation-gain">0 m</span></p>
+            <p><strong>Elevation loss:</strong> <span id="elevation-loss">0 m</span></p>
+            <p><strong>Elapsed time:</strong> <span id="elapsed">00:00:00</span></p>
+        </section>
+
+        <section class="log">
+            <h2>Log</h2>
+            <ul id="log"></ul>
+        </section>
+
+        <section class="export" hidden>
+            <h2>Export</h2>
+            <button id="download-kml-btn">Download KML</button>
+        </section>
+    </main>
+
+    <script src="assets/script.js" type="module"></script>
+</body>
+</html>

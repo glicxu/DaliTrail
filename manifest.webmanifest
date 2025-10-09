@@ -1,0 +1,21 @@
+{
+  "name": "DaliTrail",
+  "short_name": "DaliTrail",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#121517",
+  "theme_color": "#2b7ff6",
+  "description": "Track your outdoor adventures and export them for Google Earth.",
+  "icons": [
+    {
+      "src": "assets/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
