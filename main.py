@@ -41,9 +41,28 @@ async def read_service_worker():
 
 
 if __name__ == "__main__":
-    # Allow overriding host/port via env vars; defaults work for local dev.
-    host = os.getenv("DALITRAIL_HOST", "0.0.0.0")
-    port = int(os.getenv("DALITRAIL_PORT", "8000"))
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run the DaliTrail FastAPI app.")
+    parser.add_argument("--host", default=os.getenv("DALITRAIL_HOST", "0.0.0.0"))
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.getenv("DALITRAIL_PORT", "8000")),
+    )
+    parser.add_argument(
+        "--reload",
+        action="store_true",
+        default=os.getenv("DALITRAIL_RELOAD", "true").lower() in {"1", "true", "yes"},
+        help="Enable autoreload (default: enabled unless DALITRAIL_RELOAD=0).",
+    )
+    parser.add_argument(
+        "--no-reload",
+        dest="reload",
+        action="store_false",
+        help="Disable autoreload regardless of environment defaults.",
+    )
+    args = parser.parse_args()
 
     certfile = os.getenv("DALITRAIL_SSL_CERT")
     keyfile = os.getenv("DALITRAIL_SSL_KEY")
@@ -61,8 +80,8 @@ if __name__ == "__main__":
 
     uvicorn.run(
         "main:app",
-        host=host,
-        port=port,
-        reload=True,
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
         **ssl_kwargs,
     )
