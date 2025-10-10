@@ -24,6 +24,7 @@ let elapsedOffset = 0;
 let timerId = null;
 let points = [];
 let lastPoint = null;
+let lastAcceptedPoint = null;
 let totalDistance = 0;
 let hasFinished = false;
 let elevationGain = 0;
@@ -32,7 +33,8 @@ const isSecure =
     window.isSecureContext || window.location.hostname === "localhost";
 
 const MAX_SEGMENT_METERS = 150; // Ignore improbable jumps
-const MAX_ACCURACY_METERS = 40; // Skip low-accuracy fixes
+const MAX_ACCURACY_METERS = 25; // Skip low-accuracy fixes
+const MIN_DISPLACEMENT_METERS = 6; // Require meaningful movement
 let deferredInstallPrompt = null;
 
 const logEvent = (message) => {
@@ -106,6 +108,7 @@ const persistTrailState = () => {
             elapsedOffset + (activeStartTime ? Date.now() - activeStartTime : 0),
         hasFinished,
         lastPoint,
+        lastAcceptedPoint,
     };
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -131,6 +134,7 @@ const restoreTrailState = () => {
         elapsedOffset = Number(parsed.elapsedOffset) || 0;
         hasFinished = Boolean(parsed.hasFinished);
         lastPoint = parsed.lastPoint || null;
+        lastAcceptedPoint = parsed.lastAcceptedPoint || null;
 
         if (points.length > 0) {
             exportSection.hidden = !hasFinished;
@@ -151,6 +155,7 @@ const restoreTrailState = () => {
 const resetTrail = () => {
     points = [];
     lastPoint = null;
+    lastAcceptedPoint = null;
     totalDistance = 0;
     elevationGain = 0;
     elevationLoss = 0;
@@ -228,33 +233,54 @@ const startTracking = () => {
                 timestamp: position.timestamp,
                 altitude: sanitizeAltitude(altitude),
             };
+            lastPoint = point;
             if (!shouldUsePoint(point)) {
                 return;
             }
-            if (lastPoint) {
-                const segment = haversineDistance(lastPoint, point);
-                if (segment <= MAX_SEGMENT_METERS) {
-                    totalDistance += segment;
-                } else {
-                    logEvent(
-                        `Discarded segment ${segment.toFixed(
-                            1
-                        )}m (too large, likely GPS jump)`
-                    );
-                }
-                if (
-                    point.altitude !== null &&
-                    lastPoint.altitude !== null
-                ) {
-                    const altitudeDelta = point.altitude - lastPoint.altitude;
-                    if (altitudeDelta > 0) {
-                        elevationGain += altitudeDelta;
-                    } else if (altitudeDelta < 0) {
-                        elevationLoss += Math.abs(altitudeDelta);
-                    }
+
+            if (!lastAcceptedPoint) {
+                lastAcceptedPoint = point;
+                points.push(point);
+                updateMetrics();
+                persistTrailState();
+                return;
+            }
+
+            const displacement = haversineDistance(lastAcceptedPoint, point);
+
+            if (displacement < MIN_DISPLACEMENT_METERS) {
+                logEvent(
+                    `Ignored movement ${displacement.toFixed(
+                        1
+                    )}m (below threshold).`
+                );
+                return;
+            }
+
+            if (displacement > MAX_SEGMENT_METERS) {
+                logEvent(
+                    `Discarded segment ${displacement.toFixed(
+                        1
+                    )}m (too large, likely GPS jump).`
+                );
+                return;
+            }
+
+            totalDistance += displacement;
+            if (
+                point.altitude !== null &&
+                lastAcceptedPoint.altitude !== null
+            ) {
+                const altitudeDelta =
+                    point.altitude - lastAcceptedPoint.altitude;
+                if (altitudeDelta > 0) {
+                    elevationGain += altitudeDelta;
+                } else if (altitudeDelta < 0) {
+                    elevationLoss += Math.abs(altitudeDelta);
                 }
             }
-            lastPoint = point;
+
+            lastAcceptedPoint = point;
             points.push(point);
             updateMetrics();
             persistTrailState();
