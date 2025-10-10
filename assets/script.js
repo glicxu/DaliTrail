@@ -14,6 +14,9 @@ const finishBtn = document.getElementById("finish-btn");
 
 const STORAGE_KEY = "dalitrail:session";
 
+const installSection = document.querySelector(".install");
+const installBtn = document.getElementById("install-btn");
+
 let watchId = null;
 let geoPermission = "prompt";
 let activeStartTime = null;
@@ -30,6 +33,7 @@ const isSecure =
 
 const MAX_SEGMENT_METERS = 150; // Ignore improbable jumps
 const MAX_ACCURACY_METERS = 40; // Skip low-accuracy fixes
+let deferredInstallPrompt = null;
 
 const logEvent = (message) => {
     const item = document.createElement("li");
@@ -393,6 +397,18 @@ finishBtn.addEventListener("click", () => {
 });
 
 downloadBtn.addEventListener("click", downloadKml);
+installBtn?.addEventListener("click", async () => {
+    if (!deferredInstallPrompt) {
+        logEvent("Install prompt unavailable.");
+        alert("Install option is not available right now. Try again later.");
+        return;
+    }
+    deferredInstallPrompt.prompt();
+    const { outcome } = await deferredInstallPrompt.userChoice;
+    logEvent(`Install prompt outcome: ${outcome}.`);
+    deferredInstallPrompt = null;
+    installSection.hidden = true;
+});
 
 updateMetrics();
 restoreTrailState();
@@ -444,3 +460,20 @@ if (navigator.permissions && navigator.permissions.query) {
             // Permissions API unsupported or unavailable; rely on error callbacks.
         });
 }
+
+window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    if (installSection) {
+        installSection.hidden = false;
+    }
+    logEvent("Install prompt ready. Tap Install App to add to home screen.");
+});
+
+window.addEventListener("appinstalled", () => {
+    deferredInstallPrompt = null;
+    if (installSection) {
+        installSection.hidden = true;
+    }
+    logEvent("App installed on device.");
+});

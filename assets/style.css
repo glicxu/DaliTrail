@@ -67,7 +67,8 @@ button:not(:disabled):hover {
 
 .status,
 .log,
-.export {
+.export,
+.install {
     background: rgba(0, 0, 0, 0.2);
     padding: 16px;
     border-radius: 12px;
@@ -75,7 +76,8 @@ button:not(:disabled):hover {
 
 .status h2,
 .log h2,
-.export h2 {
+.export h2,
+.install h2 {
     font-size: 1.2rem;
     margin-bottom: 12px;
 }
@@ -92,6 +94,11 @@ button:not(:disabled):hover {
 .log li {
     margin-bottom: 8px;
     font-size: 0.9rem;
+    color: rgba(245, 245, 245, 0.85);
+}
+
+.install p {
+    margin-bottom: 12px;
     color: rgba(245, 245, 245, 0.85);
 }
 
