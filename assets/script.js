@@ -12,6 +12,8 @@ const startBtn = document.getElementById("start-btn");
 const pauseBtn = document.getElementById("pause-btn");
 const finishBtn = document.getElementById("finish-btn");
 
+const STORAGE_KEY = "dalitrail:session";
+
 let watchId = null;
 let geoPermission = "prompt";
 let activeStartTime = null;
@@ -87,6 +89,61 @@ const haversineDistance = (pointA, pointB) => {
     return earthRadius * c;
 };
 
+const persistTrailState = () => {
+    if (typeof localStorage === "undefined") {
+        return;
+    }
+    const payload = {
+        points,
+        totalDistance,
+        elevationGain,
+        elevationLoss,
+        elapsedOffset:
+            elapsedOffset + (activeStartTime ? Date.now() - activeStartTime : 0),
+        hasFinished,
+        lastPoint,
+    };
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    } catch (error) {
+        logEvent(`Unable to persist session: ${error.message}`);
+    }
+};
+
+const restoreTrailState = () => {
+    if (typeof localStorage === "undefined") {
+        return;
+    }
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+        return;
+    }
+    try {
+        const parsed = JSON.parse(raw);
+        points = Array.isArray(parsed.points) ? parsed.points : [];
+        totalDistance = Number(parsed.totalDistance) || 0;
+        elevationGain = Number(parsed.elevationGain) || 0;
+        elevationLoss = Number(parsed.elevationLoss) || 0;
+        elapsedOffset = Number(parsed.elapsedOffset) || 0;
+        hasFinished = Boolean(parsed.hasFinished);
+        lastPoint = parsed.lastPoint || null;
+
+        if (points.length > 0) {
+            exportSection.hidden = !hasFinished;
+            startBtn.textContent = hasFinished ? "Start New" : "Resume";
+            setStatus(
+                hasFinished
+                    ? "Previous trail finished. Start a new one when ready."
+                    : "Trail data restored. Tap Resume to continue tracking."
+            );
+            logEvent("Restored previous session data from storage.");
+        }
+        updateMetrics();
+    } catch (error) {
+        logEvent(`Failed to restore session: ${error.message}`);
+    }
+};
+
 const resetTrail = () => {
     points = [];
     lastPoint = null;
@@ -99,6 +156,7 @@ const resetTrail = () => {
     exportSection.hidden = true;
     updateMetrics();
     logEvent("New trail session started.");
+    persistTrailState();
 };
 
 const sanitizeAltitude = (altitude) => {
@@ -125,6 +183,7 @@ const startTracking = () => {
         setStatus("Location access is blocked. Enable it in your browser settings to start tracking.");
         alert("Location access is blocked. Please enable it in your browser or system settings.");
         logEvent("Start blocked: geolocation permission denied.");
+        persistTrailState();
         return;
     }
 
@@ -194,6 +253,7 @@ const startTracking = () => {
             lastPoint = point;
             points.push(point);
             updateMetrics();
+            persistTrailState();
         },
         (error) => {
             setStatus(`Error: ${error.message}`);
@@ -202,6 +262,7 @@ const startTracking = () => {
                 geoPermission = "denied";
                 setStatus("Location access denied. Enable it in your browser settings to continue.");
             }
+            persistTrailState();
         },
         {
             enableHighAccuracy: true,
@@ -213,6 +274,7 @@ const startTracking = () => {
     setStatus("Recording trail…");
     logEvent("Trail recording started.");
     startBtn.textContent = "Resume";
+    persistTrailState();
 };
 
 const pauseTracking = () => {
@@ -231,6 +293,7 @@ const pauseTracking = () => {
     pauseBtn.disabled = true;
     setStatus("Trail paused.");
     logEvent("Trail paused.");
+    persistTrailState();
 };
 
 const finishTracking = () => {
@@ -255,6 +318,7 @@ const finishTracking = () => {
     exportSection.hidden = points.length === 0;
     hasFinished = true;
     startBtn.textContent = "Start New";
+    persistTrailState();
 };
 
 const buildKml = () => {
@@ -306,6 +370,7 @@ const downloadKml = () => {
     anchor.click();
     URL.revokeObjectURL(url);
     logEvent("KML file downloaded.");
+    persistTrailState();
 };
 
 startBtn.addEventListener("click", () => {
@@ -329,8 +394,11 @@ finishBtn.addEventListener("click", () => {
 
 downloadBtn.addEventListener("click", downloadKml);
 
-setStatus("Ready when you are.");
 updateMetrics();
+restoreTrailState();
+if (points.length === 0 && !hasFinished) {
+    setStatus("Ready when you are.");
+}
 if (!isSecure) {
     setStatus("Open this app via HTTPS (or localhost) to enable location tracking.");
     logEvent("Waiting for secure context to access geolocation.");
