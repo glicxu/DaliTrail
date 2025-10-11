@@ -5,7 +5,7 @@
   "display": "standalone",
   "background_color": "#121517",
   "theme_color": "#2b7ff6",
-  "description": "Track your outdoor adventures and export them for Google Earth.",
+  "description": "Track and share your location.",
   "icons": [
     {
       "src": "assets/icons/icon-180.png",
