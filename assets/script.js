@@ -430,6 +430,43 @@ const buildMapsTargets = () => {
     return { mapsUrl, geoUri, appleMapsUrl };
 };
 
+const buildKml = () => {
+    if (points.length === 0) {
+        return "";
+    }
+
+    const startDate = points[0]?.timestamp ? new Date(points[0].timestamp) : new Date();
+    const name = `DaliTrail-${startDate.toISOString()}`;
+    const coordinates = points
+        .map(({ lng, lat, altitude }) => {
+            const altValue = Number.isFinite(altitude) ? altitude : 0;
+            return `${lng.toFixed(6)},${lat.toFixed(6)},${altValue.toFixed(1)}`;
+        })
+        .join(" ");
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${name}</name>
+    <Placemark>
+      <name>${name}</name>
+      <Style>
+        <LineStyle>
+          <color>ff2b7ff6</color>
+          <width>4</width>
+        </LineStyle>
+      </Style>
+      <LineString>
+        <tessellate>1</tessellate>
+        <coordinates>
+          ${coordinates}
+        </coordinates>
+      </LineString>
+    </Placemark>
+  </Document>
+</kml>`;
+};
+
 const openMapsFallback = () => {
     const targets = buildMapsTargets();
     if (!targets) {
@@ -444,6 +481,49 @@ const openMapsFallback = () => {
 };
 
 const openRouteInMaps = async () => {
+    if (points.length === 0) {
+        alert("You need at least one recorded point before opening in Maps.");
+        return;
+    }
+
+    const kmlContent = buildKml();
+    const filename = `dali-trail-${new Date().toISOString()}.kml`;
+    const blob = new Blob([kmlContent], {
+        type: "application/vnd.google-earth.kml+xml",
+    });
+    const kmlFile = new File([blob], filename, { type: blob.type });
+
+    const supportsFileShare =
+        typeof navigator.share === "function" &&
+        typeof navigator.canShare === "function" &&
+        navigator.canShare({ files: [kmlFile] });
+
+    if (supportsFileShare) {
+        try {
+            if (openMapsBtn) {
+                openMapsBtn.disabled = true;
+            }
+            await navigator.share({
+                files: [kmlFile],
+                title: "DaliTrail route",
+                text: "Trail recorded with DaliTrail.",
+            });
+            logEvent("Shared trail KML with a maps app.");
+            return;
+        } catch (error) {
+            if (error.name === "AbortError") {
+                logEvent("Trail sharing cancelled by user.");
+                return;
+            }
+            logEvent(`KML sharing failed: ${error.message}`);
+            alert("Sharing failed. Opening via direct maps link instead.");
+        } finally {
+            if (openMapsBtn) {
+                openMapsBtn.disabled = false;
+            }
+        }
+    }
+
     const targets = buildMapsTargets();
     if (!targets) {
         return;
