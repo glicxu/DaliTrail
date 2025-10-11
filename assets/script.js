@@ -404,26 +404,39 @@ const downloadKml = () => {
     persistTrailState();
 };
 
-const openMapsFallback = () => {
+const buildMapsTargets = () => {
     if (points.length === 0) {
-        return;
+        return null;
     }
     const origin = points[0];
     const destination = points[points.length - 1];
     const waypointSlice = points.slice(1, Math.min(points.length - 1, 8));
     const format = ({ lat, lng }) => `${lat.toFixed(6)},${lng.toFixed(6)}`;
+    const formattedOrigin = format(origin);
+    const formattedDestination = format(destination);
 
+    let mapsUrl = "";
     if (points.length > 1) {
         const waypoints = waypointSlice.map(format).join("|");
-        let mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(format(origin))}&destination=${encodeURIComponent(format(destination))}`;
+        mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(formattedOrigin)}&destination=${encodeURIComponent(formattedDestination)}`;
         if (waypoints) {
             mapsUrl += `&waypoints=${encodeURIComponent(waypoints)}`;
         }
-        window.open(mapsUrl, "_blank", "noopener");
     } else {
-        const geoUri = `geo:${format(destination)}?q=${encodeURIComponent(`Trail@${format(destination)}`)}`;
-        window.open(geoUri, "_blank", "noopener");
+        mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(formattedDestination)}`;
     }
+
+    const geoUri = `geo:${formattedDestination}?q=${encodeURIComponent(`Trail@${formattedDestination}`)}`;
+    return { mapsUrl, geoUri };
+};
+
+const openMapsFallback = () => {
+    const targets = buildMapsTargets();
+    if (!targets) {
+        return;
+    }
+    const fallbackUrl = targets.mapsUrl || targets.geoUri;
+    window.open(fallbackUrl, "_blank", "noopener");
     logEvent("Opened route in maps via URL fallback.");
 };
 
@@ -439,27 +452,38 @@ const shareKmlToMaps = async () => {
         return;
     }
 
+    const targets = buildMapsTargets();
+    if (!targets) {
+        return;
+    }
+
     const filename = `dali-trail-${new Date().toISOString()}.kml`;
     const blob = new Blob([kmlContent], { type: "application/vnd.google-earth.kml+xml" });
     const file = new File([blob], filename, { type: blob.type });
-    const shareData = {
-        files: [file],
-        title: "DaliTrail Route",
-        text: "Trail recorded with DaliTrail.",
-    };
-
-    if (navigator.canShare && !navigator.canShare(shareData)) {
-        logEvent("Device cannot share KML file; using maps fallback.");
-        openMapsFallback();
-        return;
-    }
+    const canShareFiles =
+        typeof navigator.canShare === "function" && navigator.canShare({ files: [file] });
+    const shareData = canShareFiles
+        ? {
+              files: [file],
+              title: "DaliTrail Route",
+              text: "Trail recorded with DaliTrail.",
+          }
+        : {
+              title: "DaliTrail Route",
+              text: "Trail recorded with DaliTrail. Open with your preferred maps app.",
+              url: targets.mapsUrl,
+          };
 
     try {
         if (openMapsBtn) {
             openMapsBtn.disabled = true;
         }
         await navigator.share(shareData);
-        logEvent("Shared trail with a maps app.");
+        if (canShareFiles) {
+            logEvent("Shared trail KML with a maps app.");
+        } else {
+            logEvent("Shared trail link with a maps app.");
+        }
     } catch (error) {
         if (error.name !== "AbortError") {
             logEvent(`Sharing failed: ${error.message}`);
