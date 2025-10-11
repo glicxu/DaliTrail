@@ -1,4 +1,4 @@
-const CACHE_NAME = "dalitrail-cache-v1";
+const CACHE_NAME = "dalitrail-cache-v2";
 const ASSETS = [
   "/",
   "/manifest.webmanifest",
