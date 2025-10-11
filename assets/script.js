@@ -467,17 +467,69 @@ const buildKml = () => {
 </kml>`;
 };
 
-const openMapsFallback = () => {
+const encodePolyline = (pathPoints) => {
+    let lastLat = 0;
+    let lastLng = 0;
+    let result = "";
+
+    const encodeValue = (current, previous) => {
+        let value = Math.round(current * 1e5) - Math.round(previous * 1e5);
+        value <<= 1;
+        if (value < 0) {
+            value = ~value;
+        }
+        let output = "";
+        while (value >= 0x20) {
+            output += String.fromCharCode((0x20 | (value & 0x1f)) + 63);
+            value >>= 5;
+        }
+        output += String.fromCharCode(value + 63);
+        return output;
+    };
+
+    for (const point of pathPoints) {
+        if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) {
+            continue;
+        }
+        result += encodeValue(point.lat, lastLat);
+        result += encodeValue(point.lng, lastLng);
+        lastLat = point.lat;
+        lastLng = point.lng;
+    }
+
+    return result;
+};
+
+const buildTrailTargets = () => {
     const targets = buildMapsTargets();
     if (!targets) {
         return;
     }
-    const fallbackUrl = targets.appleMapsUrl || targets.mapsUrl || targets.geoUri;
+    const encodedPath = encodePolyline(points);
+    const googleEncodedUrl = encodedPath
+        ? `https://www.google.com/maps?q=enc:${encodeURIComponent(encodedPath)}&z=16`
+        : "";
+    const googleMapsAppUrl = encodedPath ? `comgooglemaps://?q=enc:${encodedPath}` : "";
+    return {
+        ...targets,
+        encodedPath,
+        googleEncodedUrl,
+        googleMapsAppUrl,
+    };
+};
+
+const openMapsFallback = (existingTargets) => {
+    const targets = existingTargets ?? buildTrailTargets();
+    if (!targets) {
+        return;
+    }
+    const fallbackUrl =
+        targets.googleEncodedUrl || targets.mapsUrl || targets.appleMapsUrl || targets.geoUri;
     if (!fallbackUrl) {
         return;
     }
     window.location.href = fallbackUrl;
-    logEvent("Opened route in maps via URL fallback.");
+    logEvent("Opened trail in Google Maps with encoded path.");
 };
 
 const openRouteInMaps = async () => {
@@ -486,89 +538,40 @@ const openRouteInMaps = async () => {
         return;
     }
 
-    const kmlContent = buildKml();
-    const filename = `dali-trail-${new Date().toISOString()}.kml`;
-    const blob = new Blob([kmlContent], {
-        type: "application/vnd.google-earth.kml+xml",
-    });
-    const kmlFile = new File([blob], filename, { type: blob.type });
-
-    const supportsFileShare =
-        typeof navigator.share === "function" &&
-        typeof navigator.canShare === "function" &&
-        navigator.canShare({ files: [kmlFile] });
-
-    if (supportsFileShare) {
-        try {
-            if (openMapsBtn) {
-                openMapsBtn.disabled = true;
-            }
-            await navigator.share({
-                files: [kmlFile],
-                title: "DaliTrail route",
-                text: "Trail recorded with DaliTrail.",
-            });
-            logEvent("Shared trail KML with a maps app.");
-            return;
-        } catch (error) {
-            if (error.name === "AbortError") {
-                logEvent("Trail sharing cancelled by user.");
-                return;
-            }
-            logEvent(`KML sharing failed: ${error.message}`);
-            alert("Sharing failed. Opening via direct maps link instead.");
-        } finally {
-            if (openMapsBtn) {
-                openMapsBtn.disabled = false;
-            }
-        }
-    }
-
-    const targets = buildMapsTargets();
+    const targets = buildTrailTargets();
     if (!targets) {
+        alert("Unable to build a maps link for this trail.");
         return;
     }
 
-    if (isIosDevice) {
-        const directUrl = targets.appleMapsUrl || targets.geoUri || targets.mapsUrl;
-        if (directUrl) {
-            window.location.href = directUrl;
-            logEvent("Opened trail in Apple Maps.");
-            return;
+    const { googleMapsAppUrl } = targets;
+    const attemptedUrls = new Set();
+
+    const openUrl = (url, logMessage) => {
+        if (!url || attemptedUrls.has(url)) {
+            return false;
         }
-    }
-
-    const supportsShare = typeof navigator !== "undefined" && "share" in navigator;
-    if (!supportsShare) {
-        openMapsFallback();
-        return;
-    }
-
-    const shareData = {
-        title: "DaliTrail Route",
-        text: "Open this trail in your preferred maps app.",
-        url: targets.mapsUrl || targets.geoUri,
+        attemptedUrls.add(url);
+        window.location.href = url;
+        if (logMessage) {
+            logEvent(logMessage);
+        }
+        return true;
     };
 
-    try {
-        if (openMapsBtn) {
-            openMapsBtn.disabled = true;
+    if (isIosDevice && googleMapsAppUrl) {
+        const fallbackTimer = window.setTimeout(() => {
+            openMapsFallback(targets);
+        }, 1200);
+        const opened = openUrl(googleMapsAppUrl, "Attempted to open trail in Google Maps app.");
+        if (!opened) {
+            window.clearTimeout(fallbackTimer);
+            openMapsFallback(targets);
         }
-        await navigator.share(shareData);
-        logEvent("Shared trail link with a maps app.");
-    } catch (error) {
-        if (error.name !== "AbortError") {
-            logEvent(`Sharing failed: ${error.message}`);
-            alert("Sharing failed. Trying to open in your maps app instead.");
-            openMapsFallback();
-        } else {
-            logEvent("Sharing cancelled by user.");
-        }
-    } finally {
-        if (openMapsBtn) {
-            openMapsBtn.disabled = false;
-        }
+        return;
     }
+
+    openMapsFallback(targets);
 };
 
 const buildLocationTargets = (point) => {
