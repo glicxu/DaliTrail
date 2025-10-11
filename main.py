@@ -24,6 +24,11 @@ async def read_index():
     return FileResponse(index_path)
 
 
+@app.get("/index.html", response_class=FileResponse)
+async def read_index_html():
+    return await read_index()
+
+
 @app.get("/manifest.webmanifest", response_class=FileResponse)
 async def read_manifest():
     manifest = BASE_DIR / "manifest.webmanifest"
@@ -38,6 +43,33 @@ async def read_service_worker():
     if not sw.exists():
         raise HTTPException(status_code=404, detail="service worker not found")
     return FileResponse(sw)
+
+
+def _icon_response(filename: str) -> FileResponse:
+    icon_path = BASE_DIR / "assets" / "icons" / filename
+    if not icon_path.exists():
+        raise HTTPException(status_code=404, detail=f"{filename} not found")
+    return FileResponse(icon_path)
+
+
+@app.get("/apple-touch-icon.png", response_class=FileResponse)
+async def apple_touch_icon():
+    return _icon_response("icon-512.png")
+
+
+@app.get("/apple-touch-icon-120x120.png", response_class=FileResponse)
+async def apple_touch_icon_120():
+    return _icon_response("icon-192.png")
+
+
+@app.get("/apple-touch-icon-120x120-precomposed.png", response_class=FileResponse)
+async def apple_touch_icon_precomposed():
+    return _icon_response("icon-192.png")
+
+
+@app.get("/favicon.ico", response_class=FileResponse)
+async def favicon():
+    return _icon_response("icon-192.png")
 
 
 if __name__ == "__main__":
