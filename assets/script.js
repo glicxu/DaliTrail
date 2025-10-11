@@ -7,6 +7,7 @@ const elevationLossText = document.getElementById("elevation-loss");
 const logList = document.getElementById("log");
 const exportSection = document.querySelector(".export");
 const downloadBtn = document.getElementById("download-kml-btn");
+const openMapsBtn = document.getElementById("open-maps-btn");
 
 const startBtn = document.getElementById("start-btn");
 const pauseBtn = document.getElementById("pause-btn");
@@ -403,6 +404,77 @@ const downloadKml = () => {
     persistTrailState();
 };
 
+const openMapsFallback = () => {
+    if (points.length === 0) {
+        return;
+    }
+    const origin = points[0];
+    const destination = points[points.length - 1];
+    const waypointSlice = points.slice(1, Math.min(points.length - 1, 8));
+    const format = ({ lat, lng }) => `${lat.toFixed(6)},${lng.toFixed(6)}`;
+
+    if (points.length > 1) {
+        const waypoints = waypointSlice.map(format).join("|");
+        let mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(format(origin))}&destination=${encodeURIComponent(format(destination))}`;
+        if (waypoints) {
+            mapsUrl += `&waypoints=${encodeURIComponent(waypoints)}`;
+        }
+        window.open(mapsUrl, "_blank", "noopener");
+    } else {
+        const geoUri = `geo:${format(destination)}?q=${encodeURIComponent(`Trail@${format(destination)}`)}`;
+        window.open(geoUri, "_blank", "noopener");
+    }
+    logEvent("Opened route in maps via URL fallback.");
+};
+
+const shareKmlToMaps = async () => {
+    const kmlContent = buildKml();
+    if (!kmlContent) {
+        return;
+    }
+
+    const supportsShare = typeof navigator !== "undefined" && "share" in navigator;
+    if (!supportsShare) {
+        openMapsFallback();
+        return;
+    }
+
+    const filename = `dali-trail-${new Date().toISOString()}.kml`;
+    const blob = new Blob([kmlContent], { type: "application/vnd.google-earth.kml+xml" });
+    const file = new File([blob], filename, { type: blob.type });
+    const shareData = {
+        files: [file],
+        title: "DaliTrail Route",
+        text: "Trail recorded with DaliTrail.",
+    };
+
+    if (navigator.canShare && !navigator.canShare(shareData)) {
+        logEvent("Device cannot share KML file; using maps fallback.");
+        openMapsFallback();
+        return;
+    }
+
+    try {
+        if (openMapsBtn) {
+            openMapsBtn.disabled = true;
+        }
+        await navigator.share(shareData);
+        logEvent("Shared trail with a maps app.");
+    } catch (error) {
+        if (error.name !== "AbortError") {
+            logEvent(`Sharing failed: ${error.message}`);
+            alert("Sharing failed. Trying to open in your maps app instead.");
+            openMapsFallback();
+        } else {
+            logEvent("Sharing cancelled by user.");
+        }
+    } finally {
+        if (openMapsBtn) {
+            openMapsBtn.disabled = false;
+        }
+    }
+};
+
 startBtn.addEventListener("click", () => {
     startTracking();
 });
@@ -423,6 +495,7 @@ finishBtn.addEventListener("click", () => {
 });
 
 downloadBtn.addEventListener("click", downloadKml);
+openMapsBtn?.addEventListener("click", shareKmlToMaps);
 installBtn?.addEventListener("click", async () => {
     if (!deferredInstallPrompt) {
         logEvent("Install prompt unavailable.");
