@@ -6,7 +6,6 @@ const elevationGainText = document.getElementById("elevation-gain");
 const elevationLossText = document.getElementById("elevation-loss");
 const logList = document.getElementById("log");
 const exportSection = document.querySelector(".export");
-const downloadBtn = document.getElementById("download-kml-btn");
 const openMapsBtn = document.getElementById("open-maps-btn");
 
 const startBtn = document.getElementById("start-btn");
@@ -352,58 +351,6 @@ const finishTracking = () => {
     persistTrailState();
 };
 
-const buildKml = () => {
-    if (points.length === 0) {
-        return "";
-    }
-
-    const name = `DaliTrail-${new Date(points[0].timestamp).toISOString()}`;
-    const coordinates = points
-        .map(({ lng, lat, altitude }) => {
-            const altValue = Number.isFinite(altitude) ? altitude : 0;
-            return `${lng.toFixed(6)},${lat.toFixed(6)},${altValue.toFixed(1)}`;
-        })
-        .join(" ");
-
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-  <Document>
-    <name>${name}</name>
-    <Placemark>
-      <name>${name}</name>
-      <Style>
-        <LineStyle>
-          <color>ff2b7ff6</color>
-          <width>4</width>
-        </LineStyle>
-      </Style>
-      <LineString>
-        <tessellate>1</tessellate>
-        <coordinates>
-          ${coordinates}
-        </coordinates>
-      </LineString>
-    </Placemark>
-  </Document>
-</kml>`;
-};
-
-const downloadKml = () => {
-    const kmlContent = buildKml();
-    if (!kmlContent) {
-        return;
-    }
-    const blob = new Blob([kmlContent], { type: "application/vnd.google-earth.kml+xml" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `dali-trail-${new Date().toISOString()}.kml`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-    logEvent("KML file downloaded.");
-    persistTrailState();
-};
-
 const buildMapsTargets = () => {
     if (points.length === 0) {
         return null;
@@ -436,54 +383,37 @@ const openMapsFallback = () => {
         return;
     }
     const fallbackUrl = targets.mapsUrl || targets.geoUri;
-    window.open(fallbackUrl, "_blank", "noopener");
+    if (!fallbackUrl) {
+        return;
+    }
+    window.location.href = fallbackUrl;
     logEvent("Opened route in maps via URL fallback.");
 };
 
-const shareKmlToMaps = async () => {
-    const kmlContent = buildKml();
-    if (!kmlContent) {
-        return;
-    }
-
+const openRouteInMaps = async () => {
     const supportsShare = typeof navigator !== "undefined" && "share" in navigator;
-    if (!supportsShare) {
-        openMapsFallback();
-        return;
-    }
-
     const targets = buildMapsTargets();
     if (!targets) {
         return;
     }
 
-    const filename = `dali-trail-${new Date().toISOString()}.kml`;
-    const blob = new Blob([kmlContent], { type: "application/vnd.google-earth.kml+xml" });
-    const file = new File([blob], filename, { type: blob.type });
-    const canShareFiles =
-        typeof navigator.canShare === "function" && navigator.canShare({ files: [file] });
-    const shareData = canShareFiles
-        ? {
-              files: [file],
-              title: "DaliTrail Route",
-              text: "Trail recorded with DaliTrail.",
-          }
-        : {
-              title: "DaliTrail Route",
-              text: "Trail recorded with DaliTrail. Open with your preferred maps app.",
-              url: targets.mapsUrl,
-          };
+    if (!supportsShare) {
+        openMapsFallback();
+        return;
+    }
+
+    const shareData = {
+        title: "DaliTrail Route",
+        text: "Open this trail in your preferred maps app.",
+        url: targets.mapsUrl,
+    };
 
     try {
         if (openMapsBtn) {
             openMapsBtn.disabled = true;
         }
         await navigator.share(shareData);
-        if (canShareFiles) {
-            logEvent("Shared trail KML with a maps app.");
-        } else {
-            logEvent("Shared trail link with a maps app.");
-        }
+        logEvent("Shared trail link with a maps app.");
     } catch (error) {
         if (error.name !== "AbortError") {
             logEvent(`Sharing failed: ${error.message}`);
@@ -518,8 +448,7 @@ finishBtn.addEventListener("click", () => {
     }
 });
 
-downloadBtn.addEventListener("click", downloadKml);
-openMapsBtn?.addEventListener("click", shareKmlToMaps);
+openMapsBtn?.addEventListener("click", openRouteInMaps);
 installBtn?.addEventListener("click", async () => {
     if (!deferredInstallPrompt) {
         logEvent("Install prompt unavailable.");
