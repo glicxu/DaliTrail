@@ -374,7 +374,8 @@ const buildMapsTargets = () => {
     }
 
     const geoUri = `geo:${formattedDestination}?q=${encodeURIComponent(`Trail@${formattedDestination}`)}`;
-    return { mapsUrl, geoUri };
+    const appleMapsUrl = `maps://?saddr=${encodeURIComponent(formattedOrigin)}&daddr=${encodeURIComponent(formattedDestination)}&dirflg=w`;
+    return { mapsUrl, geoUri, appleMapsUrl };
 };
 
 const openMapsFallback = () => {
@@ -382,7 +383,7 @@ const openMapsFallback = () => {
     if (!targets) {
         return;
     }
-    const fallbackUrl = targets.mapsUrl || targets.geoUri;
+    const fallbackUrl = targets.appleMapsUrl || targets.mapsUrl || targets.geoUri;
     if (!fallbackUrl) {
         return;
     }
@@ -391,12 +392,24 @@ const openMapsFallback = () => {
 };
 
 const openRouteInMaps = async () => {
-    const supportsShare = typeof navigator !== "undefined" && "share" in navigator;
     const targets = buildMapsTargets();
     if (!targets) {
         return;
     }
 
+    const isIos =
+        typeof navigator !== "undefined" &&
+        /iphone|ipad|ipod/i.test(navigator.userAgent || "");
+    if (isIos) {
+        const directUrl = targets.appleMapsUrl || targets.geoUri || targets.mapsUrl;
+        if (directUrl) {
+            window.location.href = directUrl;
+            logEvent("Opened trail in Apple Maps.");
+            return;
+        }
+    }
+
+    const supportsShare = typeof navigator !== "undefined" && "share" in navigator;
     if (!supportsShare) {
         openMapsFallback();
         return;
@@ -405,7 +418,7 @@ const openRouteInMaps = async () => {
     const shareData = {
         title: "DaliTrail Route",
         text: "Open this trail in your preferred maps app.",
-        url: targets.mapsUrl,
+        url: targets.mapsUrl || targets.geoUri,
     };
 
     try {
