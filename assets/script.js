@@ -6,6 +6,8 @@ const elevationGainText = document.getElementById("elevation-gain");
 const elevationLossText = document.getElementById("elevation-loss");
 const logList = document.getElementById("log");
 const exportSection = document.querySelector(".export");
+const logSection = document.querySelector(".log");
+const toggleLogBtn = document.getElementById("toggle-log-btn");
 const openMapsBtn = document.getElementById("open-maps-btn");
 
 const startBtn = document.getElementById("start-btn");
@@ -42,6 +44,40 @@ const logEvent = (message) => {
     const timestamp = new Date().toLocaleTimeString();
     item.textContent = `[${timestamp}] ${message}`;
     logList.prepend(item);
+    if (logSection && logSection.hidden) {
+        toggleLogBtn?.classList.add("notify");
+    }
+};
+
+const showLog = () => {
+    if (!logSection || !toggleLogBtn) {
+        return;
+    }
+    logSection.hidden = false;
+    toggleLogBtn.textContent = "Hide Log";
+    toggleLogBtn.setAttribute("aria-expanded", "true");
+};
+
+const hideLog = () => {
+    if (!logSection || !toggleLogBtn) {
+        return;
+    }
+    logSection.hidden = true;
+    toggleLogBtn.textContent = "Show Log";
+    toggleLogBtn.setAttribute("aria-expanded", "false");
+    toggleLogBtn.classList.remove("notify");
+};
+
+const toggleLogVisibility = () => {
+    if (!logSection || !toggleLogBtn) {
+        return;
+    }
+    if (logSection.hidden) {
+        toggleLogBtn.classList.remove("notify");
+        showLog();
+    } else {
+        hideLog();
+    }
 };
 
 const setStatus = (message) => {
@@ -150,6 +186,7 @@ const restoreTrailState = () => {
     } catch (error) {
         logEvent(`Failed to restore session: ${error.message}`);
     }
+    hideLog();
 };
 
 const resetTrail = () => {
@@ -164,6 +201,7 @@ const resetTrail = () => {
     hasFinished = false;
     exportSection.hidden = true;
     updateMetrics();
+    hideLog();
     logEvent("New trail session started.");
     persistTrailState();
 };
@@ -462,6 +500,7 @@ finishBtn.addEventListener("click", () => {
 });
 
 openMapsBtn?.addEventListener("click", openRouteInMaps);
+toggleLogBtn?.addEventListener("click", toggleLogVisibility);
 installBtn?.addEventListener("click", async () => {
     if (!deferredInstallPrompt) {
         logEvent("Install prompt unavailable.");

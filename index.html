@@ -37,7 +37,11 @@
             <p><strong>Elapsed time:</strong> <span id="elapsed">00:00:00</span></p>
         </section>
 
-        <section class="log">
+        <section class="log-toggle">
+            <button id="toggle-log-btn" aria-expanded="false">Show Log</button>
+        </section>
+
+        <section class="log" hidden>
             <h2>Log</h2>
             <ul id="log"></ul>
         </section>
