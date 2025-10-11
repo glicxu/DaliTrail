@@ -54,7 +54,7 @@ def _icon_response(filename: str) -> FileResponse:
 
 @app.get("/apple-touch-icon.png", response_class=FileResponse)
 async def apple_touch_icon():
-    return _icon_response("icon-512.png")
+    return _icon_response("icon-180.png")
 
 
 @app.get("/apple-touch-icon-120x120.png", response_class=FileResponse)

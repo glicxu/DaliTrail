@@ -6,6 +6,7 @@ const ASSETS = [
   "/assets/style.css",
   "/assets/script.js",
   "/index.html",
+  "/assets/icons/icon-180.png",
   "/assets/icons/icon-192.png",
   "/assets/icons/icon-512.png"
 ];
