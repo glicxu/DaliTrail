@@ -37,6 +37,8 @@ const isSecure =
 const isIosDevice =
     typeof navigator !== "undefined" &&
     /iphone|ipad|ipod/i.test(navigator.userAgent || "");
+const isAndroidDevice =
+    typeof navigator !== "undefined" && /android/i.test(navigator.userAgent || "");
 
 const MAX_SEGMENT_METERS = 150; // Ignore improbable jumps
 const MAX_ACCURACY_METERS = 25; // Skip low-accuracy fixes
@@ -58,6 +60,26 @@ const updateShareButtonState = () => {
         return;
     }
     shareLocationBtn.disabled = points.length === 0;
+};
+
+const scheduleFallbackNavigation = (callback, delay = 1200) => {
+    const handleVisibilityChange = () => {
+        if (document.hidden) {
+            window.clearTimeout(timerId);
+            document.removeEventListener("visibilitychange", handleVisibilityChange);
+        }
+    };
+
+    const timerId = window.setTimeout(() => {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+        callback();
+    }, delay);
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+        window.clearTimeout(timerId);
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
 };
 
 const showLog = () => {
@@ -584,14 +606,14 @@ const openRouteInMaps = async () => {
 
     if (isIosDevice) {
         if (openUrl(appleMapsAppUrl, "Attempted to open trail in Apple Maps.")) {
-            window.setTimeout(() => openMapsFallback(targets), 1200);
+            scheduleFallbackNavigation(() => openMapsFallback(targets));
             return;
         }
         if (openUrl(appleMapsWebUrl, "Opened trail in Apple Maps web view.")) {
             return;
         }
         if (openUrl(googleMapsPolylineUrl, "Attempted to open trail in Google Maps app.")) {
-            window.setTimeout(() => openMapsFallback(targets), 1200);
+            scheduleFallbackNavigation(() => openMapsFallback(targets));
             return;
         }
         if (openUrl(googleMapsAppUrl, "Opened trail in Google Maps directions.")) {
@@ -599,6 +621,19 @@ const openRouteInMaps = async () => {
         }
     }
 
+    if (isAndroidDevice) {
+        if (openUrl(googleMapsAppUrl, "Attempted to open trail in Google Maps app.")) {
+            scheduleFallbackNavigation(() => openMapsFallback(targets));
+            return;
+        }
+        if (openUrl(targets.googleRouteUrl, "Opened trail in Google Maps directions.")) {
+            return;
+        }
+    }
+
+    if (openUrl(targets.googleRouteUrl, "Opened trail in Google Maps directions.")) {
+        return;
+    }
     if (openUrl(googleMapsAppUrl, "Opened trail in Google Maps directions.")) {
         return;
     }
