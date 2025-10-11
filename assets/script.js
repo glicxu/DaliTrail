@@ -8,6 +8,7 @@ const logList = document.getElementById("log");
 const exportSection = document.querySelector(".export");
 const logSection = document.querySelector(".log");
 const toggleLogBtn = document.getElementById("toggle-log-btn");
+const shareLocationBtn = document.getElementById("share-location-btn");
 const openMapsBtn = document.getElementById("open-maps-btn");
 
 const startBtn = document.getElementById("start-btn");
@@ -33,6 +34,9 @@ let elevationGain = 0;
 let elevationLoss = 0;
 const isSecure =
     window.isSecureContext || window.location.hostname === "localhost";
+const isIosDevice =
+    typeof navigator !== "undefined" &&
+    /iphone|ipad|ipod/i.test(navigator.userAgent || "");
 
 const MAX_SEGMENT_METERS = 150; // Ignore improbable jumps
 const MAX_ACCURACY_METERS = 25; // Skip low-accuracy fixes
@@ -47,6 +51,13 @@ const logEvent = (message) => {
     if (logSection && logSection.hidden) {
         toggleLogBtn?.classList.add("notify");
     }
+};
+
+const updateShareButtonState = () => {
+    if (!shareLocationBtn) {
+        return;
+    }
+    shareLocationBtn.disabled = points.length === 0;
 };
 
 const showLog = () => {
@@ -100,6 +111,7 @@ const updateMetrics = () => {
     const elapsed =
         elapsedOffset + (activeStartTime ? Date.now() - activeStartTime : 0);
     elapsedText.textContent = formatElapsed(elapsed);
+    updateShareButtonState();
 };
 
 const startTimer = () => {
@@ -187,6 +199,7 @@ const restoreTrailState = () => {
         logEvent(`Failed to restore session: ${error.message}`);
     }
     hideLog();
+    updateShareButtonState();
 };
 
 const resetTrail = () => {
@@ -205,6 +218,7 @@ const resetTrail = () => {
     logEvent("New trail session started.");
     persistTrailState();
 };
+
 
 const sanitizeAltitude = (altitude) => {
     return Number.isFinite(altitude) ? altitude : null;
@@ -435,10 +449,7 @@ const openRouteInMaps = async () => {
         return;
     }
 
-    const isIos =
-        typeof navigator !== "undefined" &&
-        /iphone|ipad|ipod/i.test(navigator.userAgent || "");
-    if (isIos) {
+    if (isIosDevice) {
         const directUrl = targets.appleMapsUrl || targets.geoUri || targets.mapsUrl;
         if (directUrl) {
             window.location.href = directUrl;
@@ -480,6 +491,65 @@ const openRouteInMaps = async () => {
     }
 };
 
+const buildLocationTargets = (point) => {
+    if (!point || !Number.isFinite(point.lat) || !Number.isFinite(point.lng)) {
+        return null;
+    }
+    const formatted = `${point.lat.toFixed(6)},${point.lng.toFixed(6)}`;
+    return {
+        formatted,
+        mapsUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(formatted)}`,
+        geoUri: `geo:${formatted}?q=${encodeURIComponent(formatted)}`,
+        appleMapsUrl: `maps://?q=${encodeURIComponent(formatted)}`,
+    };
+};
+
+const shareCurrentLocation = async () => {
+    if (points.length === 0) {
+        alert("No location data available yet. Start recording to capture your position.");
+        return;
+    }
+    const latestPoint = points[points.length - 1];
+    const targets = buildLocationTargets(latestPoint);
+    if (!targets) {
+        alert("Unable to determine your current location.");
+        return;
+    }
+
+    const shareMessage = `I'm currently at ${targets.formatted} — tracked with DaliTrail.`;
+    const shareData = {
+        title: "My current location",
+        text: shareMessage,
+        url: targets.mapsUrl,
+    };
+
+    try {
+        if (shareLocationBtn) {
+            shareLocationBtn.disabled = true;
+        }
+        if (navigator.share) {
+            await navigator.share(shareData);
+            logEvent("Shared current location.");
+        } else {
+            const fallbackUrl =
+                (isIosDevice && (targets.appleMapsUrl || targets.geoUri)) ||
+                targets.mapsUrl ||
+                targets.geoUri;
+            window.location.href = fallbackUrl;
+            logEvent("Opened maps app with current location.");
+        }
+    } catch (error) {
+        if (error.name === "AbortError") {
+            logEvent("Location share cancelled by user.");
+        } else {
+            logEvent(`Location share failed: ${error.message}`);
+            alert("Sharing failed. You can manually share the location from the log.");
+        }
+    } finally {
+        updateShareButtonState();
+    }
+};
+
 startBtn.addEventListener("click", () => {
     startTracking();
 });
@@ -499,6 +569,7 @@ finishBtn.addEventListener("click", () => {
     }
 });
 
+shareLocationBtn?.addEventListener("click", shareCurrentLocation);
 openMapsBtn?.addEventListener("click", openRouteInMaps);
 toggleLogBtn?.addEventListener("click", toggleLogVisibility);
 installBtn?.addEventListener("click", async () => {

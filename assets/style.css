@@ -17,13 +17,16 @@ body {
 
 .app {
     background: rgba(255, 255, 255, 0.04);
-    border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
     padding: 32px;
     max-width: 520px;
     width: 100%;
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 24px;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
 }
 
 header h1 {
@@ -36,33 +39,80 @@ header h1 {
     font-size: 0.95rem;
 }
 
-.controls {
+.controls,
+.actions {
     display: flex;
     gap: 12px;
 }
 
-button {
-    flex: 1;
-    padding: 12px;
-    border-radius: 8px;
-    border: none;
+.actions .btn {
+    width: 100%;
+}
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 16px;
+    border-radius: 999px;
+    border: 1px solid transparent;
     font-size: 1rem;
+    font-weight: 600;
     cursor: pointer;
-    background: #2b7ff6;
-    color: #fff;
-    transition: opacity 0.2s ease, transform 0.2s ease;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
+    background: rgba(255, 255, 255, 0.08);
+    color: #f5f5f5;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
 }
 
-button:disabled {
+.controls .btn {
+    flex: 1;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #2b7ff6, #5a9dff);
+    box-shadow: 0 12px 24px rgba(43, 127, 246, 0.35);
+}
+
+.btn-neutral {
+    background: linear-gradient(135deg, #444954, #5d6270);
+}
+
+.btn-danger {
+    background: linear-gradient(135deg, #f64f2b, #ff7a5a);
+    box-shadow: 0 12px 24px rgba(246, 79, 43, 0.35);
+}
+
+.btn-outline {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    box-shadow: none;
+}
+
+.btn-outline.notify {
+    border-color: #f6b02b;
+    color: #f6b02b;
+    box-shadow: 0 0 18px rgba(246, 176, 43, 0.25);
+}
+
+.btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+    box-shadow: none;
 }
 
-button:not(:disabled):hover {
-    opacity: 0.85;
+.btn:not(:disabled):hover,
+.btn:not(:disabled):focus-visible {
     transform: translateY(-1px);
+    box-shadow: 0 18px 36px rgba(0, 0, 0, 0.35);
+}
+
+.btn:focus-visible {
+    outline: 2px solid rgba(43, 127, 246, 0.6);
+    outline-offset: 3px;
 }
 
 .status,
@@ -102,6 +152,14 @@ button:not(:disabled):hover {
     color: rgba(245, 245, 245, 0.85);
 }
 
+.log-toggle {
+    margin-top: auto;
+}
+
+.log-toggle .btn {
+    width: 100%;
+}
+
 @media (max-width: 600px) {
     body {
         padding: 16px;
@@ -116,8 +174,12 @@ button:not(:disabled):hover {
         flex-direction: column;
     }
 
-    button {
+    .btn {
         font-size: 1.05rem;
         padding: 14px;
+    }
+
+    .btn-outline {
+        border-radius: 14px;
     }
 }

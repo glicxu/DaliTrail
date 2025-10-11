@@ -16,15 +16,19 @@
         </header>
 
         <section class="controls">
-            <button id="start-btn">Start</button>
-            <button id="pause-btn" disabled>Pause</button>
-            <button id="finish-btn" disabled>Finish</button>
+            <button class="btn btn-primary" id="start-btn">Start</button>
+            <button class="btn btn-neutral" id="pause-btn" disabled>Pause</button>
+            <button class="btn btn-danger" id="finish-btn" disabled>Finish</button>
+        </section>
+
+        <section class="actions">
+            <button class="btn btn-outline" id="share-location-btn" disabled>Share Location</button>
         </section>
 
         <section class="install" hidden>
             <h2>Install</h2>
             <p>Add DaliTrail to your device for a full-screen experience.</p>
-            <button id="install-btn">Install App</button>
+            <button class="btn btn-primary" id="install-btn">Install App</button>
         </section>
 
         <section class="status">
@@ -37,10 +41,6 @@
             <p><strong>Elapsed time:</strong> <span id="elapsed">00:00:00</span></p>
         </section>
 
-        <section class="log-toggle">
-            <button id="toggle-log-btn" aria-expanded="false">Show Log</button>
-        </section>
-
         <section class="log" hidden>
             <h2>Log</h2>
             <ul id="log"></ul>
@@ -48,7 +48,11 @@
 
         <section class="export" hidden>
             <h2>Export</h2>
-            <button id="open-maps-btn">Open in Maps</button>
+            <button class="btn btn-primary" id="open-maps-btn">Open in Maps</button>
+        </section>
+
+        <section class="log-toggle">
+            <button class="btn btn-outline" id="toggle-log-btn" aria-expanded="false">Show Log</button>
         </section>
     </main>
 
