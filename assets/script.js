@@ -413,21 +413,39 @@ const buildMapsTargets = () => {
     const format = ({ lat, lng }) => `${lat.toFixed(6)},${lng.toFixed(6)}`;
     const formattedOrigin = format(origin);
     const formattedDestination = format(destination);
+    const formattedWaypoints = waypointSlice.map(format);
+    const encodedWaypoints = formattedWaypoints.join("|");
 
-    let mapsUrl = "";
-    if (points.length > 1) {
-        const waypoints = waypointSlice.map(format).join("|");
-        mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(formattedOrigin)}&destination=${encodeURIComponent(formattedDestination)}`;
-        if (waypoints) {
-            mapsUrl += `&waypoints=${encodeURIComponent(waypoints)}`;
-        }
-    } else {
-        mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(formattedDestination)}`;
-    }
+    const googleRouteUrlBase = `https://www.google.com/maps/dir/?api=1&travelmode=walking&origin=${encodeURIComponent(
+        formattedOrigin
+    )}&destination=${encodeURIComponent(formattedDestination)}`;
+    const googleRouteUrl = formattedWaypoints.length
+        ? `${googleRouteUrlBase}&waypoints=${encodeURIComponent(encodedWaypoints)}`
+        : googleRouteUrlBase;
+
+    const googleMapsAppUrlBase = `comgooglemaps://?directionsmode=walking&saddr=${encodeURIComponent(
+        formattedOrigin
+    )}&daddr=${encodeURIComponent(formattedDestination)}`;
+    const googleMapsAppUrl = formattedWaypoints.length
+        ? `${googleMapsAppUrlBase}&waypoints=${encodeURIComponent(encodedWaypoints)}`
+        : googleMapsAppUrlBase;
 
     const geoUri = `geo:${formattedDestination}?q=${encodeURIComponent(`Trail@${formattedDestination}`)}`;
-    const appleMapsUrl = `maps://?saddr=${encodeURIComponent(formattedOrigin)}&daddr=${encodeURIComponent(formattedDestination)}&dirflg=w`;
-    return { mapsUrl, geoUri, appleMapsUrl };
+
+    const appleMapsAppUrl = `maps://?saddr=${encodeURIComponent(formattedOrigin)}&daddr=${encodeURIComponent(
+        formattedDestination
+    )}&dirflg=w`;
+    const appleMapsWebUrl = `https://maps.apple.com/?saddr=${encodeURIComponent(
+        formattedOrigin
+    )}&daddr=${encodeURIComponent(formattedDestination)}&dirflg=w`;
+
+    return {
+        googleRouteUrl,
+        googleMapsAppUrl,
+        geoUri,
+        appleMapsAppUrl,
+        appleMapsWebUrl,
+    };
 };
 
 const buildKml = () => {
@@ -503,18 +521,20 @@ const encodePolyline = (pathPoints) => {
 const buildTrailTargets = () => {
     const targets = buildMapsTargets();
     if (!targets) {
-        return;
+        return null;
     }
+
     const encodedPath = encodePolyline(points);
     const googleEncodedUrl = encodedPath
         ? `https://www.google.com/maps?q=enc:${encodeURIComponent(encodedPath)}&z=16`
-        : "";
-    const googleMapsAppUrl = encodedPath ? `comgooglemaps://?q=enc:${encodedPath}` : "";
+        : targets.googleRouteUrl;
+    const googleMapsPolylineUrl = encodedPath ? `comgooglemaps://?q=enc:${encodedPath}` : "";
+
     return {
         ...targets,
         encodedPath,
         googleEncodedUrl,
-        googleMapsAppUrl,
+        googleMapsPolylineUrl,
     };
 };
 
@@ -523,13 +543,16 @@ const openMapsFallback = (existingTargets) => {
     if (!targets) {
         return;
     }
-    const fallbackUrl =
-        targets.googleEncodedUrl || targets.mapsUrl || targets.appleMapsUrl || targets.geoUri;
+    let fallbackUrl = targets.googleEncodedUrl || targets.googleRouteUrl || targets.appleMapsWebUrl;
+    if (isIosDevice) {
+        fallbackUrl = targets.appleMapsWebUrl || targets.appleMapsAppUrl || fallbackUrl;
+    }
+    fallbackUrl ||= targets.geoUri;
     if (!fallbackUrl) {
         return;
     }
     window.location.href = fallbackUrl;
-    logEvent("Opened trail in Google Maps with encoded path.");
+    logEvent("Opened trail in maps using fallback route URL.");
 };
 
 const openRouteInMaps = async () => {
@@ -544,7 +567,7 @@ const openRouteInMaps = async () => {
         return;
     }
 
-    const { googleMapsAppUrl } = targets;
+    const { googleMapsAppUrl, googleMapsPolylineUrl, appleMapsAppUrl, appleMapsWebUrl } = targets;
     const attemptedUrls = new Set();
 
     const openUrl = (url, logMessage) => {
@@ -559,18 +582,29 @@ const openRouteInMaps = async () => {
         return true;
     };
 
-    if (isIosDevice && googleMapsAppUrl) {
-        const fallbackTimer = window.setTimeout(() => {
-            openMapsFallback(targets);
-        }, 1200);
-        const opened = openUrl(googleMapsAppUrl, "Attempted to open trail in Google Maps app.");
-        if (!opened) {
-            window.clearTimeout(fallbackTimer);
-            openMapsFallback(targets);
+    if (isIosDevice) {
+        if (openUrl(appleMapsAppUrl, "Attempted to open trail in Apple Maps.")) {
+            window.setTimeout(() => openMapsFallback(targets), 1200);
+            return;
         }
-        return;
+        if (openUrl(appleMapsWebUrl, "Opened trail in Apple Maps web view.")) {
+            return;
+        }
+        if (openUrl(googleMapsPolylineUrl, "Attempted to open trail in Google Maps app.")) {
+            window.setTimeout(() => openMapsFallback(targets), 1200);
+            return;
+        }
+        if (openUrl(googleMapsAppUrl, "Opened trail in Google Maps directions.")) {
+            return;
+        }
     }
 
+    if (openUrl(googleMapsAppUrl, "Opened trail in Google Maps directions.")) {
+        return;
+    }
+    if (openUrl(googleMapsPolylineUrl, "Opened trail in Google Maps app.")) {
+        return;
+    }
     openMapsFallback(targets);
 };
 
