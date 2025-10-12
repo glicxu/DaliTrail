@@ -165,6 +165,24 @@ body {
     color: rgba(245, 245, 245, 0.85);
 }
 
+.update {
+    background: rgba(0, 0, 0, 0.2);
+    padding: 16px;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.update h2 {
+    font-size: 1.2rem;
+}
+
+.update p {
+    color: rgba(245, 245, 245, 0.8);
+    line-height: 1.4;
+}
+
 .view[hidden] {
     display: none !important;
 }

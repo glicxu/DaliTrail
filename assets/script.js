@@ -40,6 +40,8 @@ const LOCATIONS_KEY = "dalitrail:locations";
 
 const installSection = document.querySelector('.home-view .install');
 const installBtn = document.getElementById("install-btn");
+const updateSection = document.getElementById("update-section");
+const updateBtn = document.getElementById("update-btn");
 
 let watchId = null;
 let geoPermission = "prompt";
@@ -1449,14 +1451,36 @@ document.addEventListener("visibilitychange", () => {
 });
 
 if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => {
-        navigator.serviceWorker
-            .register("/service-worker.js")
-            .then(() => logEvent("Service worker registered. App ready for install."))
-            .catch((error) =>
-                logEvent(`Service worker registration failed: ${error.message}`)
-            );
-    });
+window.addEventListener("load", () => {
+    navigator.serviceWorker
+        .register("/service-worker.js")
+        .then((registration) => {
+            if (installSection) {
+                installSection.hidden = false;
+            }
+            updateSection?.setAttribute("hidden", "true");
+            logEvent("Service worker registered. App ready for install.");
+
+            if (registration.waiting) {
+                onServiceWorkerWaiting(registration.waiting);
+            }
+
+            registration.addEventListener("updatefound", () => {
+                const newWorker = registration.installing;
+                if (!newWorker) {
+                    return;
+                }
+                newWorker.addEventListener("statechange", () => {
+                    if (newWorker.state === "installed" && registration.active) {
+                        onServiceWorkerWaiting(newWorker);
+                    }
+                });
+            });
+        })
+        .catch((error) =>
+            logEvent(`Service worker registration failed: ${error.message}`)
+        );
+});
 }
 
 const updatePermissionBanner = () => {
@@ -1485,9 +1509,7 @@ if (navigator.permissions && navigator.permissions.query) {
 window.addEventListener("beforeinstallprompt", (event) => {
     event.preventDefault();
     deferredInstallPrompt = event;
-    if (installSection) {
-        installSection.hidden = false;
-    }
+    installSection?.removeAttribute("hidden");
     logEvent("Install prompt ready. Tap Install App to add to home screen.");
 });
 
