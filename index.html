@@ -48,8 +48,8 @@
                 <p>Add DaliTrail to your device for a full-screen experience.</p>
                 <div class="install-actions">
                     <p class="install-note status-text">iPhone users: use Safari’s share sheet and choose “Add to Home Screen”.</p>
-                    <button class="btn btn-primary" id="install-btn" disabled>Install App</button>
-                    <p class="status-text" id="install-status" role="status">Install option will appear when available.</p>
+                    <button class="btn btn-primary" id="install-btn">Install App</button>
+                    <p class="status-text" id="install-status" role="status">Tap Install or use your browser menu to add DaliTrail to your home screen.</p>
                 </div>
             </section>
 
@@ -57,6 +57,15 @@
                 <h3>Update</h3>
                 <p>Download the latest improvements without leaving the app.</p>
                 <button class="btn btn-outline" id="update-btn">Check for Updates</button>
+            </section>
+
+            <section class="log" hidden>
+                <h3>Activity Log</h3>
+                <ul id="log"></ul>
+            </section>
+
+            <section class="log-toggle">
+                <button class="btn btn-outline" id="toggle-log-btn" aria-expanded="false">Show Log</button>
             </section>
         </section>
 
@@ -138,19 +147,11 @@
                 <p><strong>Elapsed time:</strong> <span id="elapsed">00:00:00</span></p>
             </section>
 
-            <section class="log" hidden>
-                <h2>Log</h2>
-                <ul id="log"></ul>
-            </section>
-
             <section class="export" hidden>
                 <h2>Export</h2>
                 <button class="btn btn-primary" id="open-maps-btn">Open in Maps</button>
             </section>
 
-            <section class="log-toggle">
-                <button class="btn btn-outline" id="toggle-log-btn" aria-expanded="false">Show Log</button>
-            </section>
         </section>
     </main>
 

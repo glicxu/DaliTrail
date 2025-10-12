@@ -1049,6 +1049,26 @@ const saveManualLocation = () => {
     );
 };
 
+const getManualInstallInstructions = () => {
+    if (isIosDevice) {
+        return "Use Safari's share sheet and choose Add to Home Screen.";
+    }
+    if (isAndroidDevice) {
+        return "Open your browser menu and choose Add to Home Screen (Install app).";
+    }
+    return "Use your browser's Add to Home Screen or Install option.";
+};
+
+const showManualInstallInstructions = (showAlert = false) => {
+    const message = getManualInstallInstructions();
+    if (installStatusText) {
+        installStatusText.textContent = message;
+    }
+    if (showAlert) {
+        alert(message);
+    }
+};
+
 const setStatus = (message) => {
     statusText.textContent = message;
 };
@@ -1679,11 +1699,8 @@ backBtn?.addEventListener("click", () => {
 });
 installBtn?.addEventListener("click", async () => {
     if (!deferredInstallPrompt) {
-        logEvent("Install prompt unavailable.");
-        if (installStatusText) {
-            installStatusText.textContent =
-                "Install option is not available right now. Try again later.";
-        }
+        logEvent("Install prompt unavailable. Showing manual instructions.");
+        showManualInstallInstructions(true);
         return;
     }
     installBtn.disabled = true;
@@ -1697,8 +1714,7 @@ installBtn?.addEventListener("click", async () => {
         }
         fallbackTimer = window.setTimeout(() => {
             installBtn.disabled = false;
-            installStatusText.textContent =
-                "Install prompt might be blocked. Use Chrome's menu → Install DaliTrail.";
+            installStatusText.textContent = `Install prompt might be blocked. ${getManualInstallInstructions()}`;
         }, 5000);
     };
     try {
@@ -1708,8 +1724,7 @@ installBtn?.addEventListener("click", async () => {
         if (!choicePromise) {
             installBtn.disabled = false;
             if (installStatusText) {
-                installStatusText.textContent =
-                    "Install prompt may not be supported here. Try Chrome's menu → Install DaliTrail.";
+                installStatusText.textContent = `Install prompt may not be supported here. ${getManualInstallInstructions()}`;
             }
             return;
         }
@@ -1724,16 +1739,14 @@ installBtn?.addEventListener("click", async () => {
         } else {
             installBtn.disabled = false;
             if (installStatusText) {
-                installStatusText.textContent =
-                    "Install was cancelled. You can try again anytime.";
+                installStatusText.textContent = "Install was cancelled. You can try again anytime.";
             }
         }
     } catch (error) {
         logEvent(`Install prompt failed: ${error instanceof Error ? error.message : String(error)}`);
         installBtn.disabled = false;
         if (installStatusText) {
-            installStatusText.textContent =
-                "Unable to open install prompt. Please try again.";
+            installStatusText.textContent = `Unable to open install prompt. ${getManualInstallInstructions()}`;
         }
     } finally {
         if (fallbackTimer) {
@@ -1767,10 +1780,10 @@ if ("serviceWorker" in navigator) {
             .then((registration) => {
                 swRegistration = registration;
                 installSection?.removeAttribute("hidden");
-                if (installStatusText) {
-                    installStatusText.textContent =
-                        "Install option will appear when available.";
+                if (installBtn) {
+                    installBtn.disabled = false;
                 }
+                showManualInstallInstructions(false);
                 updateSection?.removeAttribute("hidden");
                 if (updateBtn) {
                     updateBtn.disabled = false;
@@ -1910,3 +1923,4 @@ const loadInitialView = () => {
     return appRoot?.dataset.view || "home";
 };
 showView(loadInitialView());
+

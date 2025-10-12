@@ -464,7 +464,7 @@ textarea::placeholder {
 }
 
 .log-toggle {
-    margin-top: auto;
+    margin-top: 16px;
 }
 
 .log-toggle .btn {
