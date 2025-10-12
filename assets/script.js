@@ -1303,10 +1303,10 @@ const buildLocationTargets = (point) => {
     }
     const formatted = `${point.lat.toFixed(6)},${point.lng.toFixed(6)}`;
     const accuracyQuery = Number.isFinite(point.accuracy)
-        ? `±${point.accuracy.toFixed(1)} m`
+        ? `(+/- ${point.accuracy.toFixed(1)} m radius)`
         : null;
     const description = accuracyQuery
-        ? `${formatted} (${accuracyQuery})`
+        ? `${formatted} ${accuracyQuery}`
         : formatted;
     const encodedDescription = encodeURIComponent(description);
     return {
