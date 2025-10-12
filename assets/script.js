@@ -29,6 +29,7 @@ const locationsList = document.getElementById("locations-list");
 const locationHistoryStatus = document.getElementById("location-history-status");
 const historyViewBtn = document.getElementById("history-view-btn");
 const historyShareBtn = document.getElementById("history-share-btn");
+const historyDeleteBtn = document.getElementById("history-delete-btn");
 
 const startBtn = document.getElementById("start-btn");
 const pauseBtn = document.getElementById("pause-btn");
@@ -168,6 +169,9 @@ const updateHistoryActions = () => {
     }
     if (historyShareBtn) {
         historyShareBtn.disabled = !hasSelection;
+    }
+    if (historyDeleteBtn) {
+        historyDeleteBtn.disabled = !hasSelection;
     }
 };
 
@@ -656,6 +660,42 @@ const shareSelectedLocations = async () => {
     }
 };
 shareSelectedLocations.isSharing = false;
+
+
+const deleteSelectedLocations = () => {
+    const selected = getSelectedLocations();
+    if (selected.length === 0) {
+        return;
+    }
+    const confirmed = window.confirm(
+        selected.length === 1
+            ? "Delete this saved location permanently?"
+            : `Delete these ${selected.length} saved locations permanently?`
+    );
+    if (!confirmed) {
+        if (locationHistoryStatus) {
+            locationHistoryStatus.textContent = "Deletion cancelled.";
+        }
+        return;
+    }
+
+    const toRemove = new Set(selected.map((entry) => entry.id));
+    savedLocations = savedLocations.filter((entry) => !toRemove.has(entry.id));
+    selectedLocationIds.clear();
+    persistSavedLocations();
+    renderLatestLocation();
+    renderLocationHistory();
+    if (locationStatusText) {
+        locationStatusText.textContent =
+            savedLocations.length === 0
+                ? "No locations saved yet."
+                : `Saved ${savedLocations.length} location${savedLocations.length === 1 ? "" : "s"}.`;
+    }
+    if (locationHistoryStatus) {
+        locationHistoryStatus.textContent = `Deleted ${selected.length} location${selected.length === 1 ? "" : "s"}.`;
+    }
+    logEvent(`Deleted ${selected.length} saved location${selected.length === 1 ? "" : "s"}.`);
+};
 
 const scheduleFallbackNavigation = (callback, delay = 1200) => {
     const handleVisibilityChange = () => {
@@ -1369,6 +1409,7 @@ historyViewBtn?.addEventListener("click", openSelectedLocations);
 historyShareBtn?.addEventListener("click", () => {
     void shareSelectedLocations();
 });
+historyDeleteBtn?.addEventListener("click", deleteSelectedLocations);
 backBtn?.addEventListener("click", () => {
     const current = appRoot?.dataset.view;
     if (current === "location-history") {
