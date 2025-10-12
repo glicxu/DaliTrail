@@ -117,11 +117,6 @@ const showView = (view) => {
         backBtn.disabled = view === "home";
         backBtn.tabIndex = view === "home" ? -1 : 0;
     }
-    if (openAboutViewBtn) {
-        const showAboutShortcut = view === "home";
-        openAboutViewBtn.hidden = !showAboutShortcut;
-        openAboutViewBtn.tabIndex = showAboutShortcut ? 0 : -1;
-    }
     if (view === "track") {
         hideLog();
         updateMetrics();

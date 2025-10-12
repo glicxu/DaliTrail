@@ -60,6 +60,40 @@ body {
     text-transform: uppercase;
 }
 
+.home-view {
+    position: relative;
+    padding-bottom: 72px;
+    padding-right: 72px;
+}
+
+.about-btn {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: 1px solid rgba(245, 245, 245, 0.35);
+    justify-content: center;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.25);
+}
+
+.about-btn .ellipsis-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.about-btn .ellipsis-icon span {
+    display: block;
+    width: 6px;
+    height: 6px;
+    background: rgba(245, 245, 245, 0.85);
+    border-radius: 50%;
+}
+
 .icon-btn:focus-visible {
     outline: 2px solid rgba(43, 127, 246, 0.6);
     outline-offset: 3px;
@@ -95,6 +129,11 @@ body {
 
 .actions .btn {
     width: 100%;
+}
+
+.home-actions {
+    display: grid;
+    gap: 12px;
 }
 
 .btn {
