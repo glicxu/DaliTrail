@@ -285,6 +285,179 @@ const renderLocationHistory = () => {
     updateHistoryActions();
 };
 
+const fuseLocationSamples = (samples) => {
+    if (!samples.length) {
+        return null;
+    }
+
+    const validSamples = samples.filter(
+        (sample) => Number.isFinite(sample.lat) && Number.isFinite(sample.lng)
+    );
+    if (!validSamples.length) {
+        return null;
+    }
+
+    const accurateSamples = validSamples.filter(
+        (sample) => Number.isFinite(sample.accuracy) && sample.accuracy > 0
+    );
+    const referenceSample =
+        accurateSamples.length > 0
+            ? accurateSamples.reduce((best, sample) =>
+                  sample.accuracy < best.accuracy ? sample : best
+              )
+            : validSamples[0];
+
+    const QUALITY_THRESHOLD = 100;
+    const MAX_DISTANCE_MULTIPLIER = 2;
+    const MIN_DISTANCE_THRESHOLD = 25;
+
+    const qualityFiltered = accurateSamples.length
+        ? accurateSamples.filter((sample) => sample.accuracy <= QUALITY_THRESHOLD)
+        : validSamples;
+
+    const distanceThreshold = Math.max(
+        MIN_DISTANCE_THRESHOLD,
+        (referenceSample.accuracy || MIN_DISTANCE_THRESHOLD) * MAX_DISTANCE_MULTIPLIER
+    );
+
+    const clustered = qualityFiltered.filter((sample) => {
+        const distance = haversineDistance(referenceSample, sample);
+        return Number.isFinite(distance) && distance <= distanceThreshold;
+    });
+
+    const points = clustered.length ? clustered : [referenceSample];
+
+    let weightSum = 0;
+    let latSum = 0;
+    let lngSum = 0;
+    let altSum = 0;
+    let altWeightSum = 0;
+
+    points.forEach((sample) => {
+        const accuracy = Number.isFinite(sample.accuracy) && sample.accuracy > 0 ? sample.accuracy : 50;
+        const weight = 1 / (accuracy * accuracy);
+        weightSum += weight;
+        latSum += sample.lat * weight;
+        lngSum += sample.lng * weight;
+        if (Number.isFinite(sample.altitude)) {
+            altSum += sample.altitude * weight;
+            altWeightSum += weight;
+        }
+    });
+
+    if (weightSum === 0) {
+        const fallback = referenceSample;
+        return {
+            lat: fallback.lat,
+            lng: fallback.lng,
+            accuracy: fallback.accuracy ?? 50,
+            altitude: Number.isFinite(fallback.altitude) ? fallback.altitude : null,
+            timestamp: Date.now(),
+            sampleCount: points.length,
+        };
+    }
+
+    const fused = {
+        lat: latSum / weightSum,
+        lng: lngSum / weightSum,
+        accuracy: Math.sqrt(1 / weightSum),
+        altitude: altWeightSum > 0 ? altSum / altWeightSum : null,
+        timestamp: Date.now(),
+        sampleCount: points.length,
+    };
+
+    return fused;
+};
+
+const collectFusedLocation = ({ maxSamples = 5, windowMs = 4500 } = {}) =>
+    new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+            reject(new Error("Geolocation is not supported on this device."));
+            return;
+        }
+
+        const samples = [];
+        let resolved = false;
+        let watchId = null;
+        let timerId = null;
+
+        const cleanup = () => {
+            if (watchId !== null) {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+            }
+            if (timerId !== null) {
+                window.clearTimeout(timerId);
+                timerId = null;
+            }
+        };
+
+        const finalize = () => {
+            if (resolved) {
+                return;
+            }
+            resolved = true;
+            cleanup();
+            resolve(samples.slice());
+        };
+
+        const handleError = (error) => {
+            if (resolved) {
+                return;
+            }
+            if (samples.length) {
+                finalize();
+            } else {
+                cleanup();
+                resolved = true;
+                reject(error);
+            }
+        };
+
+        timerId = window.setTimeout(finalize, windowMs);
+
+        watchId = navigator.geolocation.watchPosition(
+            (position) => {
+                const { latitude, longitude, accuracy, altitude } = position.coords;
+                samples.push({
+                    lat: latitude,
+                    lng: longitude,
+                    accuracy: Number.isFinite(accuracy) ? accuracy : Infinity,
+                    altitude: Number.isFinite(altitude) ? altitude : null,
+                    timestamp: position.timestamp || Date.now(),
+                });
+
+                if (samples.length >= maxSamples) {
+                    finalize();
+                }
+            },
+            handleError,
+            {
+                enableHighAccuracy: true,
+                maximumAge: 0,
+                timeout: windowMs,
+            }
+        );
+    }).then((samples) => {
+        const fused = fuseLocationSamples(samples);
+        if (!fused) {
+            throw new Error("Unable to determine an accurate position.");
+        }
+        logEvent(
+            `Location fusion: captured ${samples.length} samples, fused at ${fused.lat.toFixed(
+                6
+            )}, ${fused.lng.toFixed(6)} with ~±${fused.accuracy?.toFixed(1) ?? "?"} m accuracy.`
+        );
+        samples.forEach((sample, index) => {
+            logEvent(
+                `Sample ${index + 1}: ${sample.lat.toFixed(6)}, ${sample.lng.toFixed(6)} (accuracy ${
+                    Number.isFinite(sample.accuracy) ? `±${sample.accuracy.toFixed(1)} m` : "unknown"
+                })`
+            );
+        });
+        return { fused, samples };
+    });
+
 const openLocationMap = (entry) => {
     const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
         `${entry.lat},${entry.lng}`
@@ -535,7 +708,7 @@ const toggleLogVisibility = () => {
     }
 };
 
-const captureCurrentLocation = () => {
+const captureCurrentLocation = async () => {
     if (!captureLocationBtn) {
         return;
     }
@@ -553,45 +726,42 @@ const captureCurrentLocation = () => {
 
     isCapturingLocation = true;
     captureLocationBtn.disabled = true;
-    locationStatusText.textContent = "Capturing location…";
+    if (locationStatusText) {
+        locationStatusText.textContent = "Collecting precise location...";
+    }
     const note = (locationNoteInput?.value || "").trim();
 
-    navigator.geolocation.getCurrentPosition(
-        (position) => {
-            const {
-                coords: { latitude, longitude, accuracy },
-                timestamp,
-            } = position;
-            const entry = {
-                id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-                lat: latitude,
-                lng: longitude,
-                accuracy: Number.isFinite(accuracy) ? accuracy : null,
-                note,
-                timestamp: timestamp || Date.now(),
-            };
-            savedLocations = [entry, ...savedLocations];
-            persistSavedLocations();
-            renderLatestLocation();
-            renderLocationHistory();
-            if (locationNoteInput) {
-                locationNoteInput.value = "";
-            }
-            locationStatusText.textContent = "Location saved.";
-            isCapturingLocation = false;
-            captureLocationBtn.disabled = false;
-        },
-        (error) => {
-            locationStatusText.textContent = `Unable to capture location: ${error.message}`;
-            isCapturingLocation = false;
-            captureLocationBtn.disabled = false;
-        },
-        {
-            enableHighAccuracy: true,
-            maximumAge: 0,
-            timeout: 20000,
+    try {
+        const { fused } = await collectFusedLocation();
+        const entry = {
+            id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+            lat: fused.lat,
+            lng: fused.lng,
+            accuracy: Number.isFinite(fused.accuracy) ? fused.accuracy : null,
+            note,
+            timestamp: fused.timestamp,
+        };
+        savedLocations = [entry, ...savedLocations];
+        persistSavedLocations();
+        renderLatestLocation();
+        renderLocationHistory();
+        if (locationNoteInput) {
+            locationNoteInput.value = "";
         }
-    );
+        if (locationStatusText) {
+            const accuracyText = entry.accuracy ? ` (~+/-${entry.accuracy.toFixed(1)} m)` : "";
+            locationStatusText.textContent = `Location saved${accuracyText}.`;
+        }
+    } catch (error) {
+        if (locationStatusText) {
+            const fallbackMessage =
+                error && typeof error === "object" && "message" in error ? error.message : String(error);
+            locationStatusText.textContent = `Unable to capture location: ${fallbackMessage}`;
+        }
+    } finally {
+        isCapturingLocation = false;
+        captureLocationBtn.disabled = false;
+    }
 };
 
 const setStatus = (message) => {
@@ -1132,11 +1302,18 @@ const buildLocationTargets = (point) => {
         return null;
     }
     const formatted = `${point.lat.toFixed(6)},${point.lng.toFixed(6)}`;
+    const accuracyQuery = Number.isFinite(point.accuracy)
+        ? `±${point.accuracy.toFixed(1)} m`
+        : null;
+    const description = accuracyQuery
+        ? `${formatted} (${accuracyQuery})`
+        : formatted;
+    const encodedDescription = encodeURIComponent(description);
     return {
         formatted,
-        mapsUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(formatted)}`,
-        geoUri: `geo:${formatted}?q=${encodeURIComponent(formatted)}`,
-        appleMapsUrl: `maps://?q=${encodeURIComponent(formatted)}`,
+        mapsUrl: `https://www.google.com/maps/search/?api=1&query=${encodedDescription}`,
+        geoUri: `geo:${formatted}?q=${encodedDescription}`,
+        appleMapsUrl: `maps://?q=${encodedDescription}`,
     };
 };
 
