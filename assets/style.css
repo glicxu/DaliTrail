@@ -285,6 +285,10 @@ textarea::placeholder {
     gap: 8px;
 }
 
+.install-note {
+    font-style: italic;
+}
+
 .latest-location h3 {
     font-size: 1.1rem;
     margin-bottom: 8px;
