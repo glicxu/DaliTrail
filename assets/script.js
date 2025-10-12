@@ -32,6 +32,11 @@ const locationHistoryStatus = document.getElementById("location-history-status")
 const historyViewBtn = document.getElementById("history-view-btn");
 const historyShareBtn = document.getElementById("history-share-btn");
 const historyDeleteBtn = document.getElementById("history-delete-btn");
+const locationModeInputs = document.querySelectorAll('input[name="location-mode"]');
+const locationModeViews = document.querySelectorAll(".location-mode-view");
+const manualCoordinateInput = document.getElementById("manual-coordinate-input");
+const manualAccuracyInput = document.getElementById("manual-accuracy-input");
+const saveManualLocationBtn = document.getElementById("save-manual-location-btn");
 
 const startBtn = document.getElementById("start-btn");
 const pauseBtn = document.getElementById("pause-btn");
@@ -70,6 +75,7 @@ const isAndroidDevice =
 let savedLocations = [];
 let isCapturingLocation = false;
 const selectedLocationIds = new Set();
+let locationMode = "auto";
 
 const MAX_SEGMENT_METERS = 150; // Ignore improbable jumps
 const MAX_ACCURACY_METERS = 25; // Skip low-accuracy fixes
@@ -763,6 +769,32 @@ const toggleLogVisibility = () => {
     }
 };
 
+const applyLocationMode = (mode) => {
+    const nextMode = mode === "manual" ? "manual" : "auto";
+    locationMode = nextMode;
+    locationModeInputs.forEach((input) => {
+        if (!(input instanceof HTMLInputElement)) {
+            return;
+        }
+        input.checked = input.value === nextMode;
+        const option = input.closest(".mode-option");
+        if (option && option instanceof HTMLElement) {
+            option.classList.toggle("active", input.value === nextMode);
+        }
+    });
+    locationModeViews.forEach((view) => {
+        if (!(view instanceof HTMLElement)) {
+            return;
+        }
+        const isActive = view.dataset.mode === nextMode;
+        view.hidden = !isActive;
+        view.setAttribute("aria-hidden", String(!isActive));
+    });
+    if (nextMode === "manual") {
+        manualCoordinateInput?.focus();
+    }
+};
+
 const captureCurrentLocation = async () => {
     if (!captureLocationBtn) {
         return;
@@ -817,6 +849,204 @@ const captureCurrentLocation = async () => {
         isCapturingLocation = false;
         captureLocationBtn.disabled = false;
     }
+};
+
+const parseCoordinateInput = (raw) => {
+    if (!raw) {
+        throw new Error("Enter coordinates to continue.");
+    }
+    const normalized = raw
+        .replace(/[()]/g, " ")
+        .replace(/[“”]/g, '"')
+        .replace(/[‘’]/g, "'")
+        .replace(/\s+/g, " ")
+        .trim();
+    if (!normalized) {
+        throw new Error("Enter coordinates to continue.");
+    }
+
+    const toDecimal = (degrees, minutes, seconds, direction) => {
+        const deg = Number.parseFloat(degrees);
+        const min = minutes ? Number.parseFloat(minutes) : 0;
+        const sec = seconds ? Number.parseFloat(seconds) : 0;
+        if (!Number.isFinite(deg) || !Number.isFinite(min) || !Number.isFinite(sec)) {
+            throw new Error("Unable to read degrees, minutes, or seconds.");
+        }
+        let value = Math.abs(deg) + min / 60 + sec / 3600;
+        if (deg < 0) {
+            value *= -1;
+        }
+        const dir = direction?.toUpperCase() ?? "";
+        if (dir === "S" || dir === "W") {
+            value = Math.abs(value) * -1;
+        } else if (dir === "N" || dir === "E") {
+            value = Math.abs(value);
+        }
+        return value;
+    };
+
+    const validatePair = (lat, lng) => {
+        if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+            throw new Error("Latitude must be between -90 and 90 degrees.");
+        }
+        if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
+            throw new Error("Longitude must be between -180 and 180 degrees.");
+        }
+        return { lat, lng };
+    };
+
+    const assignWithDirection = (matches, extractor) => {
+        let lat = null;
+        let lng = null;
+        matches.forEach((match) => {
+            const { value, direction } = extractor(match);
+            const dir = direction.toUpperCase();
+            if (dir === "N" || dir === "S") {
+                lat = value;
+            } else if (dir === "E" || dir === "W") {
+                lng = value;
+            }
+        });
+        if (lat === null || lng === null) {
+            if (matches.length >= 2) {
+                const first = extractor(matches[0]);
+                const second = extractor(matches[1]);
+                if (lat === null) {
+                    lat = first.value;
+                }
+                if (lng === null) {
+                    lng = second.value;
+                }
+            }
+        }
+        if (lat === null || lng === null) {
+            throw new Error("Unable to determine latitude and longitude from input.");
+        }
+        return validatePair(lat, lng);
+    };
+
+    const dmsRegex =
+        /(\d{1,3})[°º]?\s*(\d{1,2})['’′]?\s*(\d{1,2}(?:\.\d+)?)?["”″]?\s*([NSEW])/gi;
+    const dmsMatches = [...normalized.matchAll(dmsRegex)];
+    if (dmsMatches.length >= 2) {
+        return assignWithDirection(dmsMatches.slice(0, 2), (match) => {
+            const [, deg, min, sec, dir] = match;
+            return {
+                value: toDecimal(deg, min, sec, dir),
+                direction: dir,
+            };
+        });
+    }
+
+    const directionalDecimalRegex = /([+-]?\d+(?:\.\d+)?)\s*[°º]?\s*([NSEW])/gi;
+    const directionalDecimals = [...normalized.matchAll(directionalDecimalRegex)];
+    if (directionalDecimals.length >= 2) {
+        return assignWithDirection(directionalDecimals.slice(0, 2), (match) => {
+            const [, valueStr, dir] = match;
+            const value = Number.parseFloat(valueStr);
+            if (!Number.isFinite(value)) {
+                throw new Error("Unable to read coordinate value.");
+            }
+            const direction = dir.toUpperCase();
+            const signedValue =
+                direction === "S" || direction === "W" ? -Math.abs(value) : Math.abs(value);
+            return {
+                value: signedValue,
+                direction,
+            };
+        });
+    }
+
+    const commaPair = normalized.match(
+        /^([+-]?\d+(?:\.\d+)?)[\s,]+([+-]?\d+(?:\.\d+)?)(?:[\s,]+)?$/
+    );
+    if (commaPair) {
+        const lat = Number.parseFloat(commaPair[1]);
+        const lng = Number.parseFloat(commaPair[2]);
+        return validatePair(lat, lng);
+    }
+
+    const numericTokens = normalized
+        .split(/[\s,]+/)
+        .map((token) => token.trim())
+        .filter((token) => token.length > 0 && /^[-+]?\d+(?:\.\d+)?$/.test(token));
+    if (numericTokens.length >= 2) {
+        const lat = Number.parseFloat(numericTokens[0]);
+        const lng = Number.parseFloat(numericTokens[1]);
+        return validatePair(lat, lng);
+    }
+
+    throw new Error("Unable to parse coordinates. Try decimal or degree format.");
+};
+
+const saveManualLocation = () => {
+    if (!manualCoordinateInput || !saveManualLocationBtn) {
+        return;
+    }
+    const rawValue = manualCoordinateInput.value.trim();
+    if (!rawValue) {
+        if (locationStatusText) {
+            locationStatusText.textContent = "Enter coordinates to continue.";
+        }
+        manualCoordinateInput.focus();
+        return;
+    }
+    let lat;
+    let lng;
+    try {
+        const result = parseCoordinateInput(rawValue);
+        lat = result.lat;
+        lng = result.lng;
+    } catch (error) {
+        const message =
+            error instanceof Error ? error.message : "Unable to parse coordinates.";
+        if (locationStatusText) {
+            locationStatusText.textContent = message;
+        }
+        manualCoordinateInput.focus();
+        manualCoordinateInput.select?.();
+        return;
+    }
+    let accuracy = null;
+    const accuracyRaw = manualAccuracyInput?.value.trim();
+    if (accuracyRaw) {
+        const parsedAccuracy = Number.parseFloat(accuracyRaw);
+        if (!Number.isFinite(parsedAccuracy) || parsedAccuracy < 0) {
+            if (locationStatusText) {
+                locationStatusText.textContent = "Accuracy must be a positive number.";
+            }
+            manualAccuracyInput?.focus();
+            return;
+        }
+        accuracy = parsedAccuracy;
+    }
+    const note = (locationNoteInput?.value || "").trim();
+    const timestamp = Date.now();
+    const entry = {
+        id: `${timestamp}-${Math.random().toString(16).slice(2, 8)}`,
+        lat,
+        lng,
+        accuracy,
+        note,
+        timestamp,
+    };
+    savedLocations = [entry, ...savedLocations];
+    persistSavedLocations();
+    renderLatestLocation();
+    renderLocationHistory();
+    manualCoordinateInput.value = "";
+    if (manualAccuracyInput) {
+        manualAccuracyInput.value = "";
+    }
+    if (locationStatusText) {
+        const accuracyText = Number.isFinite(accuracy) ? ` (~+/-${accuracy.toFixed(1)} m)` : "";
+        locationStatusText.textContent = `Manual coordinates saved${accuracyText}.`;
+    }
+    logEvent(
+        `Manual coordinates saved at Lat ${lat.toFixed(6)}, Lng ${lng.toFixed(6)}${
+            Number.isFinite(accuracy) ? ` (±${accuracy.toFixed(1)} m)` : ""
+        }.`
+    );
 };
 
 const setStatus = (message) => {
@@ -1412,6 +1642,19 @@ finishBtn.addEventListener("click", () => {
 
 openMapsBtn?.addEventListener("click", openRouteInMaps);
 toggleLogBtn?.addEventListener("click", toggleLogVisibility);
+locationModeInputs.forEach((input) => {
+    if (!(input instanceof HTMLInputElement)) {
+        return;
+    }
+    input.addEventListener("change", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) {
+            return;
+        }
+        applyLocationMode(target.value);
+    });
+});
+saveManualLocationBtn?.addEventListener("click", saveManualLocation);
 captureLocationBtn?.addEventListener("click", captureCurrentLocation);
 openLocationViewBtn?.addEventListener("click", () => showView("location"));
 openTrackViewBtn?.addEventListener("click", () => showView("track"));
@@ -1651,6 +1894,7 @@ latestLocationCard?.addEventListener("click", (event) => {
 loadSavedLocations();
 renderLatestLocation();
 renderLocationHistory();
+applyLocationMode(locationMode);
 const loadInitialView = () => {
     if (typeof localStorage === "undefined") {
         return appRoot?.dataset.view || "home";

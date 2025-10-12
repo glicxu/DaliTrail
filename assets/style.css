@@ -294,6 +294,72 @@ body {
     gap: 12px;
 }
 
+.location-mode {
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+    padding: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.15);
+}
+
+.location-mode legend {
+    padding: 0 8px;
+    font-size: 0.95rem;
+    color: rgba(245, 245, 245, 0.8);
+}
+
+.mode-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.mode-option:hover,
+.mode-option:focus-within {
+    border-color: rgba(43, 127, 246, 0.6);
+    background: rgba(43, 127, 246, 0.12);
+}
+
+.mode-option.active {
+    border-color: rgba(43, 127, 246, 0.8);
+    background: rgba(43, 127, 246, 0.18);
+}
+
+.mode-option input[type="radio"] {
+    accent-color: #2b7ff6;
+}
+
+.mode-option input[type="radio"]:checked + span {
+    font-weight: 600;
+    color: #f5f5f5;
+}
+
+.manual-fields {
+    display: grid;
+    gap: 10px;
+}
+
+.manual-fields input {
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(0, 0, 0, 0.3);
+    color: #f5f5f5;
+}
+
+.manual-fields input::placeholder {
+    color: rgba(245, 245, 245, 0.45);
+}
+
 .field-label {
     font-size: 0.9rem;
     color: rgba(245, 245, 245, 0.7);
