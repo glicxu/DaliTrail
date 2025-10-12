@@ -19,6 +19,9 @@
                 <h1>DaliTrail</h1>
                 <p class="subtitle">Track and share your location.</p>
             </div>
+            <button class="icon-btn" id="open-about-view-btn" aria-label="About DaliTrail">
+                <span class="icon-letter" aria-hidden="true">i</span>
+            </button>
         </header>
 
         <section class="view home-view" data-view="home">
@@ -29,14 +32,24 @@
                 <button class="btn btn-primary" id="open-location-view-btn">Location</button>
                 <button class="btn btn-primary" id="open-track-view-btn">Track</button>
             </div>
+        </section>
+
+        <section class="view about-view" data-view="about" hidden>
+            <h2>About</h2>
+            <p class="section-copy">
+                Manage the app on your device and keep it up to date.
+            </p>
             <section class="install" hidden>
-                <h2>Install</h2>
+                <h3>Install</h3>
                 <p>Add DaliTrail to your device for a full-screen experience.</p>
-                <button class="btn btn-primary" id="install-btn">Install App</button>
+                <div class="install-actions">
+                    <button class="btn btn-primary" id="install-btn" disabled>Install App</button>
+                    <p class="status-text" id="install-status" role="status">Install option will appear when available.</p>
+                </div>
             </section>
 
             <section class="update" id="update-section" hidden>
-                <h2>Update</h2>
+                <h3>Update</h3>
                 <p>Download the latest improvements without leaving the app.</p>
                 <button class="btn btn-outline" id="update-btn">Check for Updates</button>
             </section>

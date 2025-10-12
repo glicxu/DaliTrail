@@ -1,11 +1,13 @@
 const appRoot = document.querySelector(".app");
 const backBtn = document.getElementById("back-btn");
 const homeView = document.querySelector('.home-view[data-view="home"]');
+const aboutView = document.querySelector('.about-view[data-view="about"]');
 const locationView = document.querySelector('.location-view[data-view="location"]');
 const locationHistoryView = document.querySelector('.location-history-view[data-view="location-history"]');
 const trackView = document.querySelector('.track-view[data-view="track"]');
 const openLocationViewBtn = document.getElementById("open-location-view-btn");
 const openTrackViewBtn = document.getElementById("open-track-view-btn");
+const openAboutViewBtn = document.getElementById("open-about-view-btn");
 
 const statusText = document.getElementById("status-text");
 const pointsCountText = document.getElementById("points-count");
@@ -34,12 +36,14 @@ const historyDeleteBtn = document.getElementById("history-delete-btn");
 const startBtn = document.getElementById("start-btn");
 const pauseBtn = document.getElementById("pause-btn");
 const finishBtn = document.getElementById("finish-btn");
+const LAST_VIEW_KEY = "dalitrail:last-view";
 
 const STORAGE_KEY = "dalitrail:session";
 const LOCATIONS_KEY = "dalitrail:locations";
 
-const installSection = document.querySelector(".home-view .install");
+const installSection = document.querySelector(".about-view .install");
 const installBtn = document.getElementById("install-btn");
+const installStatusText = document.getElementById("install-status");
 const updateSection = document.getElementById("update-section");
 const updateBtn = document.getElementById("update-btn");
 let swRegistration = null;
@@ -84,6 +88,7 @@ const logEvent = (message) => {
 
 const VIEWS = {
     home: homeView,
+    about: aboutView,
     location: locationView,
     "location-history": locationHistoryView,
     track: trackView,
@@ -94,6 +99,13 @@ const showView = (view) => {
         throw new Error(`Unknown view: ${view}`);
     }
     appRoot.dataset.view = view;
+    if (typeof localStorage !== "undefined") {
+        try {
+            localStorage.setItem(LAST_VIEW_KEY, view);
+        } catch {
+            // Ignore storage errors (e.g., quota exceeded, disabled).
+        }
+    }
     Object.entries(VIEWS).forEach(([name, section]) => {
         if (!section) {
             return;
@@ -1403,6 +1415,7 @@ toggleLogBtn?.addEventListener("click", toggleLogVisibility);
 captureLocationBtn?.addEventListener("click", captureCurrentLocation);
 openLocationViewBtn?.addEventListener("click", () => showView("location"));
 openTrackViewBtn?.addEventListener("click", () => showView("track"));
+openAboutViewBtn?.addEventListener("click", () => showView("about"));
 openLocationHistoryBtn?.addEventListener("click", () => {
     selectedLocationIds.clear();
     renderLocationHistory();
@@ -1424,14 +1437,67 @@ backBtn?.addEventListener("click", () => {
 installBtn?.addEventListener("click", async () => {
     if (!deferredInstallPrompt) {
         logEvent("Install prompt unavailable.");
-        alert("Install option is not available right now. Try again later.");
+        if (installStatusText) {
+            installStatusText.textContent =
+                "Install option is not available right now. Try again later.";
+        }
         return;
     }
-    deferredInstallPrompt.prompt();
-    const { outcome } = await deferredInstallPrompt.userChoice;
-    logEvent(`Install prompt outcome: ${outcome}.`);
-    deferredInstallPrompt = null;
-    installSection.hidden = true;
+    installBtn.disabled = true;
+    if (installStatusText) {
+        installStatusText.textContent = "Displaying install prompt...";
+    }
+    let fallbackTimer = null;
+    const scheduleFallbackNotice = () => {
+        if (!installStatusText) {
+            return;
+        }
+        fallbackTimer = window.setTimeout(() => {
+            installBtn.disabled = false;
+            installStatusText.textContent =
+                "Install prompt might be blocked. Use Chrome's menu → Install DaliTrail.";
+        }, 5000);
+    };
+    try {
+        scheduleFallbackNotice();
+        await deferredInstallPrompt.prompt();
+        const choicePromise = deferredInstallPrompt.userChoice;
+        if (!choicePromise) {
+            installBtn.disabled = false;
+            if (installStatusText) {
+                installStatusText.textContent =
+                    "Install prompt may not be supported here. Try Chrome's menu → Install DaliTrail.";
+            }
+            return;
+        }
+        const { outcome } = await choicePromise;
+        if (fallbackTimer) {
+            window.clearTimeout(fallbackTimer);
+            fallbackTimer = null;
+        }
+        logEvent(`Install prompt outcome: ${outcome}.`);
+        if (outcome === "accepted") {
+            installSection.hidden = true;
+        } else {
+            installBtn.disabled = false;
+            if (installStatusText) {
+                installStatusText.textContent =
+                    "Install was cancelled. You can try again anytime.";
+            }
+        }
+    } catch (error) {
+        logEvent(`Install prompt failed: ${error instanceof Error ? error.message : String(error)}`);
+        installBtn.disabled = false;
+        if (installStatusText) {
+            installStatusText.textContent =
+                "Unable to open install prompt. Please try again.";
+        }
+    } finally {
+        if (fallbackTimer) {
+            window.clearTimeout(fallbackTimer);
+        }
+        deferredInstallPrompt = null;
+    }
 });
 
 updateMetrics();
@@ -1458,6 +1524,10 @@ if ("serviceWorker" in navigator) {
             .then((registration) => {
                 swRegistration = registration;
                 installSection?.removeAttribute("hidden");
+                if (installStatusText) {
+                    installStatusText.textContent =
+                        "Install option will appear when available.";
+                }
                 updateSection?.removeAttribute("hidden");
                 if (updateBtn) {
                     updateBtn.disabled = false;
@@ -1519,6 +1589,13 @@ window.addEventListener("beforeinstallprompt", (event) => {
     event.preventDefault();
     deferredInstallPrompt = event;
     installSection?.removeAttribute("hidden");
+    if (installBtn) {
+        installBtn.disabled = false;
+    }
+    if (installStatusText) {
+        installStatusText.textContent =
+            "Ready to install DaliTrail on this device.";
+    }
     logEvent("Install prompt ready. Tap Install App to add to home screen.");
 });
 
@@ -1526,6 +1603,9 @@ window.addEventListener("appinstalled", () => {
     deferredInstallPrompt = null;
     if (installSection) {
         installSection.hidden = true;
+    }
+    if (installStatusText) {
+        installStatusText.textContent = "DaliTrail is already installed on this device.";
     }
     logEvent("App installed on device.");
 });
@@ -1571,4 +1651,18 @@ latestLocationCard?.addEventListener("click", (event) => {
 loadSavedLocations();
 renderLatestLocation();
 renderLocationHistory();
-showView(appRoot?.dataset.view || "home");
+const loadInitialView = () => {
+    if (typeof localStorage === "undefined") {
+        return appRoot?.dataset.view || "home";
+    }
+    try {
+        const stored = localStorage.getItem(LAST_VIEW_KEY);
+        if (stored && stored in VIEWS) {
+            return stored;
+        }
+    } catch {
+        // Ignore storage read issues and fall back to default.
+    }
+    return appRoot?.dataset.view || "home";
+};
+showView(loadInitialView());
