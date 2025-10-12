@@ -38,10 +38,11 @@ const finishBtn = document.getElementById("finish-btn");
 const STORAGE_KEY = "dalitrail:session";
 const LOCATIONS_KEY = "dalitrail:locations";
 
-const installSection = document.querySelector('.home-view .install');
+const installSection = document.querySelector(".home-view .install");
 const installBtn = document.getElementById("install-btn");
 const updateSection = document.getElementById("update-section");
 const updateBtn = document.getElementById("update-btn");
+let swRegistration = null;
 
 let watchId = null;
 let geoPermission = "prompt";
@@ -1451,37 +1452,45 @@ document.addEventListener("visibilitychange", () => {
 });
 
 if ("serviceWorker" in navigator) {
-window.addEventListener("load", () => {
-    navigator.serviceWorker
-        .register("/service-worker.js")
-        .then((registration) => {
-            if (installSection) {
-                installSection.hidden = false;
-            }
-            updateSection?.setAttribute("hidden", "true");
-            logEvent("Service worker registered. App ready for install.");
-
-            if (registration.waiting) {
-                onServiceWorkerWaiting(registration.waiting);
-            }
-
-            registration.addEventListener("updatefound", () => {
-                const newWorker = registration.installing;
-                if (!newWorker) {
-                    return;
+    window.addEventListener("load", () => {
+        navigator.serviceWorker
+            .register("/service-worker.js")
+            .then((registration) => {
+                swRegistration = registration;
+                installSection?.removeAttribute("hidden");
+                updateSection?.removeAttribute("hidden");
+                if (updateBtn) {
+                    updateBtn.disabled = false;
+                    updateBtn.textContent = "Check for Updates";
                 }
-                newWorker.addEventListener("statechange", () => {
-                    if (newWorker.state === "installed" && registration.active) {
-                        onServiceWorkerWaiting(newWorker);
-                    }
-                });
-            });
-        })
-        .catch((error) =>
-            logEvent(`Service worker registration failed: ${error.message}`)
-        );
-});
+                logEvent("Service worker registered. Update checks enabled.");
+            })
+            .catch((error) =>
+                logEvent(`Service worker registration failed: ${error.message}`)
+            );
+    });
 }
+
+updateBtn?.addEventListener("click", async () => {
+    if (!updateBtn) {
+        return;
+    }
+    const originalText = updateBtn.textContent || "Check for Updates";
+    updateBtn.disabled = true;
+    updateBtn.textContent = "Checking...";
+    try {
+        if (swRegistration?.update) {
+            await swRegistration.update();
+            logEvent("Checking for new updates...");
+        }
+        logEvent("Reloading app to apply the latest version.");
+        window.location.reload();
+    } catch (error) {
+        logEvent(`Update check failed: ${error.message}`);
+        updateBtn.disabled = false;
+        updateBtn.textContent = originalText;
+    }
+});
 
 const updatePermissionBanner = () => {
     if (geoPermission === "denied") {
