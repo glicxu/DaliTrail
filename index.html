@@ -12,50 +12,93 @@
     <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
-    <main class="app">
-        <header>
-            <h1>DaliTrail</h1>
-            <p class="subtitle">Track and share your location.</p>
+    <main class="app" data-view="home">
+        <header class="app-header">
+            <button class="btn btn-outline back-btn" id="back-btn" hidden>Back</button>
+            <div>
+                <h1>DaliTrail</h1>
+                <p class="subtitle">Track and share your location.</p>
+            </div>
         </header>
 
-        <section class="controls">
-            <button class="btn btn-primary" id="start-btn">Start</button>
-            <button class="btn btn-neutral" id="pause-btn" disabled>Pause</button>
-            <button class="btn btn-danger" id="finish-btn" disabled>Finish</button>
+        <section class="view home-view" data-view="home">
+            <p class="intro">
+                Pick how you want to use DaliTrail today.
+            </p>
+            <div class="home-actions">
+                <button class="btn btn-primary" id="open-location-view-btn">Location</button>
+                <button class="btn btn-primary" id="open-track-view-btn">Track</button>
+            </div>
+            <section class="install" hidden>
+                <h2>Install</h2>
+                <p>Add DaliTrail to your device for a full-screen experience.</p>
+                <button class="btn btn-primary" id="install-btn">Install App</button>
+            </section>
         </section>
 
-        <section class="actions">
-            <button class="btn btn-outline" id="share-location-btn" disabled>Share Location</button>
+        <section class="view location-view" data-view="location" hidden>
+            <h2>Location</h2>
+            <p class="section-copy">
+                Capture single GPS points with notes and share them later.
+            </p>
+            <div class="location-actions">
+                <label class="field-label" for="location-note-input">Notes (optional)</label>
+                <textarea id="location-note-input" rows="2" placeholder="Example: Campsite near the creek"></textarea>
+                <button class="btn btn-primary" id="capture-location-btn">Save Current Location</button>
+                <p id="location-status" class="status-text">No locations saved yet.</p>
+            </div>
+            <section class="latest-location">
+                <h3>Latest Location</h3>
+                <div id="latest-location-card" class="location-card empty" aria-live="polite">
+                    <p class="status-text">No locations saved yet.</p>
+                </div>
+            </section>
+            <button class="btn btn-outline" id="open-location-history-btn" disabled>Previous Locations</button>
         </section>
 
-        <section class="install" hidden>
-            <h2>Install</h2>
-            <p>Add DaliTrail to your device for a full-screen experience.</p>
-            <button class="btn btn-primary" id="install-btn">Install App</button>
+        <section class="view location-history-view" data-view="location-history" hidden>
+            <h2>Saved Locations</h2>
+            <p class="section-copy">
+                Select the points you want to share or view on a map.
+            </p>
+            <ul id="locations-list"></ul>
+            <p id="location-history-status" class="status-text">No saved locations yet.</p>
+            <div class="history-actions">
+                <button class="btn btn-primary" id="history-view-btn" disabled>View on Map</button>
+                <button class="btn btn-outline" id="history-share-btn" disabled>Share</button>
+            </div>
         </section>
+        <section class="view track-view" data-view="track" hidden>
+            <div class="controls">
+                <button class="btn btn-primary" id="start-btn">Start</button>
+                <button class="btn btn-neutral" id="pause-btn" disabled>Pause</button>
+                <button class="btn btn-danger" id="finish-btn" disabled>Finish</button>
+            </div>
 
-        <section class="status">
-            <h2>Status</h2>
-            <p id="status-text">Ready when you are.</p>
-            <p><strong>Points recorded:</strong> <span id="points-count">0</span></p>
-            <p><strong>Total distance:</strong> <span id="distance">0 m</span></p>
-            <p><strong>Elevation gain:</strong> <span id="elevation-gain">0 m</span></p>
-            <p><strong>Elevation loss:</strong> <span id="elevation-loss">0 m</span></p>
-            <p><strong>Elapsed time:</strong> <span id="elapsed">00:00:00</span></p>
-        </section>
+            <section class="status">
+                <h2>Status</h2>
+                <p id="status-text">Ready when you are.</p>
+                <p><strong>Points recorded:</strong> <span id="points-count">0</span></p>
+                <p><strong>Total distance:</strong> <span id="distance">0 m</span></p>
+                <p><strong>Elevation gain:</strong> <span id="elevation-gain">0 m</span></p>
+                <p><strong>Elevation loss:</strong> <span id="elevation-loss">0 m</span></p>
+                <p><strong>Average speed:</strong> <span id="avg-speed">0 km/h</span></p>
+                <p><strong>Elapsed time:</strong> <span id="elapsed">00:00:00</span></p>
+            </section>
 
-        <section class="log" hidden>
-            <h2>Log</h2>
-            <ul id="log"></ul>
-        </section>
+            <section class="log" hidden>
+                <h2>Log</h2>
+                <ul id="log"></ul>
+            </section>
 
-        <section class="export" hidden>
-            <h2>Export</h2>
-            <button class="btn btn-primary" id="open-maps-btn">Open in Maps</button>
-        </section>
+            <section class="export" hidden>
+                <h2>Export</h2>
+                <button class="btn btn-primary" id="open-maps-btn">Open in Maps</button>
+            </section>
 
-        <section class="log-toggle">
-            <button class="btn btn-outline" id="toggle-log-btn" aria-expanded="false">Show Log</button>
+            <section class="log-toggle">
+                <button class="btn btn-outline" id="toggle-log-btn" aria-expanded="false">Show Log</button>
+            </section>
         </section>
     </main>
 

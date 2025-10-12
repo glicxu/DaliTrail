@@ -1,3 +1,12 @@
+const appRoot = document.querySelector(".app");
+const backBtn = document.getElementById("back-btn");
+const homeView = document.querySelector('.home-view[data-view="home"]');
+const locationView = document.querySelector('.location-view[data-view="location"]');
+const locationHistoryView = document.querySelector('.location-history-view[data-view="location-history"]');
+const trackView = document.querySelector('.track-view[data-view="track"]');
+const openLocationViewBtn = document.getElementById("open-location-view-btn");
+const openTrackViewBtn = document.getElementById("open-track-view-btn");
+
 const statusText = document.getElementById("status-text");
 const pointsCountText = document.getElementById("points-count");
 const distanceText = document.getElementById("distance");
@@ -8,16 +17,27 @@ const logList = document.getElementById("log");
 const exportSection = document.querySelector(".export");
 const logSection = document.querySelector(".log");
 const toggleLogBtn = document.getElementById("toggle-log-btn");
-const shareLocationBtn = document.getElementById("share-location-btn");
 const openMapsBtn = document.getElementById("open-maps-btn");
+const avgSpeedText = document.getElementById("avg-speed");
+
+const locationNoteInput = document.getElementById("location-note-input");
+const captureLocationBtn = document.getElementById("capture-location-btn");
+const locationStatusText = document.getElementById("location-status");
+const latestLocationCard = document.getElementById("latest-location-card");
+const openLocationHistoryBtn = document.getElementById("open-location-history-btn");
+const locationsList = document.getElementById("locations-list");
+const locationHistoryStatus = document.getElementById("location-history-status");
+const historyViewBtn = document.getElementById("history-view-btn");
+const historyShareBtn = document.getElementById("history-share-btn");
 
 const startBtn = document.getElementById("start-btn");
 const pauseBtn = document.getElementById("pause-btn");
 const finishBtn = document.getElementById("finish-btn");
 
 const STORAGE_KEY = "dalitrail:session";
+const LOCATIONS_KEY = "dalitrail:locations";
 
-const installSection = document.querySelector(".install");
+const installSection = document.querySelector('.home-view .install');
 const installBtn = document.getElementById("install-btn");
 
 let watchId = null;
@@ -39,6 +59,9 @@ const isIosDevice =
     /iphone|ipad|ipod/i.test(navigator.userAgent || "");
 const isAndroidDevice =
     typeof navigator !== "undefined" && /android/i.test(navigator.userAgent || "");
+let savedLocations = [];
+let isCapturingLocation = false;
+const selectedLocationIds = new Set();
 
 const MAX_SEGMENT_METERS = 150; // Ignore improbable jumps
 const MAX_ACCURACY_METERS = 25; // Skip low-accuracy fixes
@@ -55,12 +78,411 @@ const logEvent = (message) => {
     }
 };
 
-const updateShareButtonState = () => {
-    if (!shareLocationBtn) {
+const VIEWS = {
+    home: homeView,
+    location: locationView,
+    "location-history": locationHistoryView,
+    track: trackView,
+};
+
+const showView = (view) => {
+    if (!(view in VIEWS)) {
+        throw new Error(`Unknown view: ${view}`);
+    }
+    appRoot.dataset.view = view;
+    Object.entries(VIEWS).forEach(([name, section]) => {
+        if (!section) {
+            return;
+        }
+        section.hidden = name !== view;
+    });
+    if (backBtn) {
+        backBtn.hidden = view === "home";
+        backBtn.disabled = view === "home";
+        backBtn.tabIndex = view === "home" ? -1 : 0;
+    }
+    if (view === "track") {
+        hideLog();
+        updateMetrics();
+    }
+    if (view === "location-history") {
+        updateHistoryActions();
+    }
+};
+
+const persistSavedLocations = () => {
+    if (typeof localStorage === "undefined") {
         return;
     }
-    shareLocationBtn.disabled = points.length === 0;
+    try {
+        localStorage.setItem(LOCATIONS_KEY, JSON.stringify(savedLocations));
+    } catch (error) {
+        locationStatusText.textContent = `Unable to save location: ${error.message}`;
+    }
 };
+
+const loadSavedLocations = () => {
+    if (typeof localStorage === "undefined") {
+        savedLocations = [];
+        return;
+    }
+    try {
+        const raw = localStorage.getItem(LOCATIONS_KEY);
+        if (!raw) {
+            savedLocations = [];
+            return;
+        }
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+            savedLocations = [];
+            return;
+        }
+        savedLocations = parsed
+            .filter(
+                (entry) =>
+                    typeof entry === "object" &&
+                    entry !== null &&
+                    Number.isFinite(entry.lat) &&
+                    Number.isFinite(entry.lng) &&
+                    typeof entry.id === "string"
+            )
+            .map((entry) => ({
+                ...entry,
+                note: typeof entry.note === "string" ? entry.note : "",
+            }))
+            .sort((a, b) => b.timestamp - a.timestamp);
+    } catch {
+        savedLocations = [];
+    }
+};
+
+const formatTimestamp = (value) => {
+    const date = new Date(value);
+    return date.toLocaleString();
+};
+
+const updateHistoryActions = () => {
+    const hasSelection = selectedLocationIds.size > 0;
+    if (historyViewBtn) {
+        historyViewBtn.disabled = !hasSelection;
+    }
+    if (historyShareBtn) {
+        historyShareBtn.disabled = !hasSelection;
+    }
+};
+
+const renderLatestLocation = () => {
+    if (!latestLocationCard) {
+        return;
+    }
+    latestLocationCard.innerHTML = "";
+    if (savedLocations.length === 0) {
+        latestLocationCard.classList.add("empty");
+        latestLocationCard.innerHTML = `<p class="status-text">No locations saved yet.</p>`;
+        delete latestLocationCard.dataset.id;
+        if (locationStatusText) {
+            locationStatusText.textContent = "No locations saved yet.";
+        }
+        if (openLocationHistoryBtn) {
+            openLocationHistoryBtn.disabled = true;
+        }
+        return;
+    }
+    const latest = savedLocations[0];
+    latestLocationCard.classList.remove("empty");
+    latestLocationCard.dataset.id = latest.id;
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.innerHTML = `
+        <span>${formatTimestamp(latest.timestamp)}</span>
+        <span>Lat: ${latest.lat.toFixed(6)} | Lng: ${latest.lng.toFixed(6)}</span>
+        ${
+            Number.isFinite(latest.accuracy)
+                ? `<span>Accuracy: +/-${latest.accuracy.toFixed(1)} m</span>`
+                : ""
+        }
+    `;
+    latestLocationCard.appendChild(meta);
+
+    if (latest.note) {
+        const note = document.createElement("p");
+        note.className = "note";
+        note.textContent = latest.note;
+        latestLocationCard.appendChild(note);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    actions.innerHTML = `
+        <button class="btn btn-primary" data-action="view">View on Map</button>
+        <button class="btn btn-outline" data-action="share">Share</button>
+    `;
+    latestLocationCard.appendChild(actions);
+
+    if (locationStatusText) {
+        locationStatusText.textContent = `Saved ${savedLocations.length} location${
+            savedLocations.length === 1 ? "" : "s"
+        }.`;
+    }
+    if (openLocationHistoryBtn) {
+        openLocationHistoryBtn.disabled = savedLocations.length === 0;
+    }
+};
+
+const renderLocationHistory = () => {
+    if (!locationsList || !locationHistoryStatus) {
+        return;
+    }
+    locationsList.innerHTML = "";
+    const validIds = new Set(savedLocations.map((entry) => entry.id));
+    Array.from(selectedLocationIds).forEach((id) => {
+        if (!validIds.has(id)) {
+            selectedLocationIds.delete(id);
+        }
+    });
+
+    if (savedLocations.length === 0) {
+        locationHistoryStatus.textContent = "No saved locations yet.";
+        updateHistoryActions();
+        return;
+    }
+
+    locationHistoryStatus.textContent = `Select the locations you want to act on.`;
+    savedLocations.forEach((entry) => {
+        const li = document.createElement("li");
+        li.className = "location-history-item";
+        li.dataset.id = entry.id;
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.value = entry.id;
+        checkbox.checked = selectedLocationIds.has(entry.id);
+        li.appendChild(checkbox);
+
+        const card = document.createElement("div");
+        card.className = "location-card";
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        meta.innerHTML = `
+            <span>${formatTimestamp(entry.timestamp)}</span>
+            <span>Lat: ${entry.lat.toFixed(6)} | Lng: ${entry.lng.toFixed(6)}</span>
+            ${
+                Number.isFinite(entry.accuracy)
+                    ? `<span>Accuracy: +/-${entry.accuracy.toFixed(1)} m</span>`
+                    : ""
+            }
+        `;
+        card.appendChild(meta);
+        if (entry.note) {
+            const note = document.createElement("p");
+            note.className = "note";
+            note.textContent = entry.note;
+            card.appendChild(note);
+        }
+        li.appendChild(card);
+        locationsList.appendChild(li);
+    });
+    updateHistoryActions();
+};
+
+const openLocationMap = (entry) => {
+    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+        `${entry.lat},${entry.lng}`
+    )}`;
+    window.open(url, "_blank", "noopener");
+};
+
+const shareLocationEntry = async (entry) => {
+    const noteLine = entry.note ? `\nNote: ${entry.note}` : "";
+    const message = `Location recorded on ${formatTimestamp(
+        entry.timestamp
+    )}\nLat: ${entry.lat.toFixed(6)}\nLng: ${entry.lng.toFixed(6)}${noteLine}\n\nSent from DaliTrail.`;
+
+    const shareData = {
+        title: "Saved location",
+        text: message,
+        url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+            `${entry.lat},${entry.lng}`
+        )}`,
+    };
+
+    if (navigator.share) {
+        try {
+            await navigator.share(shareData);
+            locationStatusText.textContent = "Location shared successfully.";
+        } catch (error) {
+            if (error.name !== "AbortError") {
+                locationStatusText.textContent = `Share failed: ${error.message}`;
+            }
+        }
+    } else {
+        openLocationMap(entry);
+    }
+};
+
+const getSelectedLocations = () => {
+    return savedLocations.filter((entry) => selectedLocationIds.has(entry.id));
+};
+
+const openSelectedLocations = () => {
+    const selected = getSelectedLocations();
+    if (selected.length === 0) {
+        return;
+    }
+    if (selected.length === 1) {
+        openLocationMap(selected[0]);
+        return;
+    }
+    const origin = selected[0];
+    const destination = selected[selected.length - 1];
+    const waypoints = selected.slice(1, -1);
+    const format = (entry) => `${entry.lat.toFixed(6)},${entry.lng.toFixed(6)}`;
+    let url = `https://www.google.com/maps/dir/?api=1&travelmode=walking&origin=${encodeURIComponent(
+        format(origin)
+    )}&destination=${encodeURIComponent(format(destination))}`;
+    if (waypoints.length) {
+        const waypointString = waypoints.map(format).join("|");
+        url += `&waypoints=${encodeURIComponent(waypointString)}`;
+    }
+    window.open(url, "_blank", "noopener");
+};
+
+const shareSelectedLocations = async () => {
+    if (shareSelectedLocations.isSharing) {
+        return;
+    }
+    shareSelectedLocations.isSharing = true;
+    try {
+        const selected = getSelectedLocations();
+        if (selected.length === 0) {
+            return;
+        }
+        const lines = selected.map((entry, index) => {
+            const note = entry.note ? `Note: ${entry.note}\n` : "";
+            const accuracy = Number.isFinite(entry.accuracy)
+                ? `Accuracy: +/-${entry.accuracy.toFixed(1)} m\n`
+                : "";
+            return `#${index + 1} ${formatTimestamp(entry.timestamp)}\nLat: ${entry.lat.toFixed(6)}\nLng: ${entry.lng.toFixed(6)}\n${accuracy}${note}`;
+        });
+        const shareText = `Saved locations from DaliTrail:\n\n${lines.join("\n")}\nSent via DaliTrail.`;
+
+        const buildLocationsKml = () => {
+            const name = `DaliTrail-locations-${new Date().toISOString()}`;
+            const placemarks = selected
+                .map(
+                    (entry, index) => `\n    <Placemark>\n      <name>Location ${index + 1}</name>\n      <description><![CDATA[\n${entry.note ? `${entry.note}\n` : ""}Recorded: ${formatTimestamp(entry.timestamp)}\nLatitude: ${entry.lat.toFixed(6)}\nLongitude: ${entry.lng.toFixed(6)}\n${Number.isFinite(entry.accuracy) ? `Accuracy: +/-${entry.accuracy.toFixed(1)} m` : ""}\n      ]]></description>\n      <Point>\n        <coordinates>${entry.lng.toFixed(6)},${entry.lat.toFixed(6)},0</coordinates>\n      </Point>\n    </Placemark>`
+                )
+                .join("\n");
+            return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n  <Document>\n    <name>${name}</name>\n${placemarks}\n  </Document>\n</kml>`;
+        };
+
+        const kmlContent = buildLocationsKml();
+        const blob = new Blob([kmlContent], {
+            type: "application/vnd.google-earth.kml+xml",
+        });
+        const filename = `dalitrail-locations-${Date.now()}.kml`;
+
+        const shareKmlWithFilesApi = async () => {
+            if (!(navigator.share && navigator.canShare)) {
+                return false;
+            }
+            try {
+                const kmlFile = new File([blob], filename, { type: blob.type });
+                if (!navigator.canShare({ files: [kmlFile] })) {
+                    return false;
+                }
+                await navigator.share({
+                    files: [kmlFile],
+                    title: "DaliTrail locations",
+                    text: "Selected locations exported from DaliTrail.",
+                });
+                if (locationHistoryStatus) {
+                    locationHistoryStatus.textContent = "KML shared successfully.";
+                }
+                return true;
+            } catch (error) {
+                if (error.name === "AbortError") {
+                    if (locationHistoryStatus) {
+                        locationHistoryStatus.textContent = "Share cancelled.";
+                    }
+                    return true;
+                }
+                if (
+                    error.name === "NotAllowedError" ||
+                    error.name === "SecurityError" ||
+                    error.name === "PermissionDeniedError"
+                ) {
+                    return false;
+                }
+                if (locationHistoryStatus) {
+                    locationHistoryStatus.textContent = `Sharing failed: ${error.message}`;
+                }
+                return true;
+            }
+        };
+
+        if (await shareKmlWithFilesApi()) {
+            return;
+        }
+
+        if (navigator.share && !navigator.canShare) {
+            try {
+                await navigator.share({
+                    title: "Saved locations",
+                    text: shareText,
+                });
+                if (locationHistoryStatus) {
+                    locationHistoryStatus.textContent = "Locations shared successfully.";
+                }
+                return;
+            } catch (error) {
+                if (error.name === "AbortError") {
+                    if (locationHistoryStatus) {
+                        locationHistoryStatus.textContent = "Share cancelled.";
+                    }
+                    return;
+                }
+                if (
+                    error.name !== "NotAllowedError" &&
+                    error.name !== "SecurityError" &&
+                    !error.message?.includes("not yet completed")
+                ) {
+                    if (locationHistoryStatus) {
+                        locationHistoryStatus.textContent = `Sharing failed: ${error.message}`;
+                    }
+                    return;
+                }
+            }
+        }
+
+        if (navigator.clipboard) {
+            try {
+                await navigator.clipboard.writeText(shareText);
+                alert("Locations copied to clipboard. You can paste them anywhere.");
+                if (locationHistoryStatus) {
+                    locationHistoryStatus.textContent = "Locations copied to clipboard.";
+                }
+                return;
+            } catch {
+                // ignore and fall back
+            }
+        }
+
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
+        if (locationHistoryStatus) {
+            locationHistoryStatus.textContent = "KML downloaded. Share it from your files app.";
+        }
+    } finally {
+        shareSelectedLocations.isSharing = false;
+    }
+};
+shareSelectedLocations.isSharing = false;
 
 const scheduleFallbackNavigation = (callback, delay = 1200) => {
     const handleVisibilityChange = () => {
@@ -113,6 +535,65 @@ const toggleLogVisibility = () => {
     }
 };
 
+const captureCurrentLocation = () => {
+    if (!captureLocationBtn) {
+        return;
+    }
+    if (isCapturingLocation) {
+        return;
+    }
+    if (!navigator.geolocation) {
+        alert("Geolocation is not supported on this device.");
+        return;
+    }
+    if (!isSecure) {
+        alert("Enable HTTPS (or use localhost) to access your location.");
+        return;
+    }
+
+    isCapturingLocation = true;
+    captureLocationBtn.disabled = true;
+    locationStatusText.textContent = "Capturing location…";
+    const note = (locationNoteInput?.value || "").trim();
+
+    navigator.geolocation.getCurrentPosition(
+        (position) => {
+            const {
+                coords: { latitude, longitude, accuracy },
+                timestamp,
+            } = position;
+            const entry = {
+                id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+                lat: latitude,
+                lng: longitude,
+                accuracy: Number.isFinite(accuracy) ? accuracy : null,
+                note,
+                timestamp: timestamp || Date.now(),
+            };
+            savedLocations = [entry, ...savedLocations];
+            persistSavedLocations();
+            renderLatestLocation();
+            renderLocationHistory();
+            if (locationNoteInput) {
+                locationNoteInput.value = "";
+            }
+            locationStatusText.textContent = "Location saved.";
+            isCapturingLocation = false;
+            captureLocationBtn.disabled = false;
+        },
+        (error) => {
+            locationStatusText.textContent = `Unable to capture location: ${error.message}`;
+            isCapturingLocation = false;
+            captureLocationBtn.disabled = false;
+        },
+        {
+            enableHighAccuracy: true,
+            maximumAge: 0,
+            timeout: 20000,
+        }
+    );
+};
+
 const setStatus = (message) => {
     statusText.textContent = message;
 };
@@ -133,7 +614,11 @@ const updateMetrics = () => {
     const elapsed =
         elapsedOffset + (activeStartTime ? Date.now() - activeStartTime : 0);
     elapsedText.textContent = formatElapsed(elapsed);
-    updateShareButtonState();
+    const hours = elapsed / 3600000;
+    const avgSpeed = hours > 0 ? (totalDistance / 1000) / hours : 0;
+    if (avgSpeedText) {
+        avgSpeedText.textContent = `${avgSpeed.toFixed(2)} km/h`;
+    }
 };
 
 const startTimer = () => {
@@ -221,7 +706,6 @@ const restoreTrailState = () => {
         logEvent(`Failed to restore session: ${error.message}`);
     }
     hideLog();
-    updateShareButtonState();
 };
 
 const resetTrail = () => {
@@ -656,7 +1140,7 @@ const buildLocationTargets = (point) => {
     };
 };
 
-const shareCurrentLocation = async () => {
+const shareCurrentLocation = () => {
     if (points.length === 0) {
         alert("No location data available yet. Start recording to capture your position.");
         return;
@@ -667,39 +1151,12 @@ const shareCurrentLocation = async () => {
         alert("Unable to determine your current location.");
         return;
     }
-
-    const shareMessage = `I'm currently at ${targets.formatted} — tracked with DaliTrail.`;
-    const shareData = {
-        title: "My current location",
-        text: shareMessage,
-        url: targets.mapsUrl,
-    };
-
-    try {
-        if (shareLocationBtn) {
-            shareLocationBtn.disabled = true;
-        }
-        if (navigator.share) {
-            await navigator.share(shareData);
-            logEvent("Shared current location.");
-        } else {
-            const fallbackUrl =
-                (isIosDevice && (targets.appleMapsUrl || targets.geoUri)) ||
-                targets.mapsUrl ||
-                targets.geoUri;
-            window.location.href = fallbackUrl;
-            logEvent("Opened maps app with current location.");
-        }
-    } catch (error) {
-        if (error.name === "AbortError") {
-            logEvent("Location share cancelled by user.");
-        } else {
-            logEvent(`Location share failed: ${error.message}`);
-            alert("Sharing failed. You can manually share the location from the log.");
-        }
-    } finally {
-        updateShareButtonState();
-    }
+    const fallbackUrl =
+        (isIosDevice && (targets.appleMapsUrl || targets.geoUri)) ||
+        targets.mapsUrl ||
+        targets.geoUri;
+    window.location.href = fallbackUrl;
+    logEvent("Opened maps app with current location.");
 };
 
 startBtn.addEventListener("click", () => {
@@ -721,9 +1178,28 @@ finishBtn.addEventListener("click", () => {
     }
 });
 
-shareLocationBtn?.addEventListener("click", shareCurrentLocation);
 openMapsBtn?.addEventListener("click", openRouteInMaps);
 toggleLogBtn?.addEventListener("click", toggleLogVisibility);
+captureLocationBtn?.addEventListener("click", captureCurrentLocation);
+openLocationViewBtn?.addEventListener("click", () => showView("location"));
+openTrackViewBtn?.addEventListener("click", () => showView("track"));
+openLocationHistoryBtn?.addEventListener("click", () => {
+    selectedLocationIds.clear();
+    renderLocationHistory();
+    showView("location-history");
+});
+historyViewBtn?.addEventListener("click", openSelectedLocations);
+historyShareBtn?.addEventListener("click", () => {
+    void shareSelectedLocations();
+});
+backBtn?.addEventListener("click", () => {
+    const current = appRoot?.dataset.view;
+    if (current === "location-history") {
+        showView("location");
+    } else {
+        showView("home");
+    }
+});
 installBtn?.addEventListener("click", async () => {
     if (!deferredInstallPrompt) {
         logEvent("Install prompt unavailable.");
@@ -804,3 +1280,46 @@ window.addEventListener("appinstalled", () => {
     }
     logEvent("App installed on device.");
 });
+
+locationsList?.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") {
+        return;
+    }
+    const id = target.value;
+    if (!id) {
+        return;
+    }
+    if (target.checked) {
+        selectedLocationIds.add(id);
+    } else {
+        selectedLocationIds.delete(id);
+    }
+    updateHistoryActions();
+});
+
+latestLocationCard?.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+        return;
+    }
+    const button = target.closest("button[data-action]");
+    if (!(button instanceof HTMLButtonElement)) {
+        return;
+    }
+    const id = latestLocationCard.dataset.id;
+    const entry = savedLocations.find((item) => item.id === id);
+    if (!entry) {
+        return;
+    }
+    if (button.dataset.action === "view") {
+        openLocationMap(entry);
+    } else if (button.dataset.action === "share") {
+        void shareLocationEntry(entry);
+    }
+});
+
+loadSavedLocations();
+renderLatestLocation();
+renderLocationHistory();
+showView(appRoot?.dataset.view || "home");

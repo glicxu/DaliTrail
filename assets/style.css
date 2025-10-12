@@ -20,7 +20,7 @@ body {
     border-radius: 20px;
     border: 1px solid rgba(255, 255, 255, 0.08);
     padding: 32px;
-    max-width: 520px;
+    max-width: 560px;
     width: 100%;
     display: flex;
     flex-direction: column;
@@ -29,7 +29,14 @@ body {
     box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
 }
 
-header h1 {
+.app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.app-header h1 {
     font-size: 2rem;
     margin-bottom: 8px;
 }
@@ -37,6 +44,12 @@ header h1 {
 .subtitle {
     color: rgba(245, 245, 245, 0.75);
     font-size: 0.95rem;
+}
+
+.back-btn {
+    width: auto;
+    padding-inline: 18px;
+    flex-shrink: 0;
 }
 
 .controls,
@@ -152,6 +165,137 @@ header h1 {
     color: rgba(245, 245, 245, 0.85);
 }
 
+.view[hidden] {
+    display: none !important;
+}
+
+.home-view {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    align-items: stretch;
+}
+
+.home-actions {
+    display: grid;
+    gap: 12px;
+}
+
+.home-actions .btn {
+    width: 100%;
+}
+
+.location-view {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.section-copy {
+    color: rgba(245, 245, 245, 0.8);
+    line-height: 1.5;
+}
+
+.location-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.field-label {
+    font-size: 0.9rem;
+    color: rgba(245, 245, 245, 0.7);
+}
+
+textarea {
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(0, 0, 0, 0.25);
+    color: #fff;
+    padding: 12px;
+    font-size: 1rem;
+    resize: vertical;
+    min-height: 80px;
+}
+
+textarea::placeholder {
+    color: rgba(245, 245, 245, 0.4);
+}
+
+.status-text {
+    color: rgba(245, 245, 245, 0.65);
+    font-size: 0.95rem;
+}
+
+.latest-location h3 {
+    font-size: 1.1rem;
+    margin-bottom: 8px;
+}
+
+.latest-location .location-card {
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 14px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.latest-location .location-card.empty {
+    align-items: center;
+    text-align: center;
+}
+
+.latest-location .location-card .actions {
+    display: flex;
+    gap: 10px;
+}
+
+#locations-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+#locations-list .location-history-item {
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 14px;
+    padding: 12px 14px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.location-history-item input[type="checkbox"] {
+    margin-top: 8px;
+    transform: scale(1.2);
+}
+
+.location-history-item .location-card {
+    flex: 1;
+    gap: 8px;
+}
+
+.location-card .meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.9rem;
+    color: rgba(245, 245, 245, 0.85);
+}
+
+.location-card .note {
+    color: rgba(245, 245, 245, 0.7);
+    font-size: 0.9rem;
+}
+
+.history-actions {
+    display: grid;
+    gap: 12px;
+    margin-top: 12px;
+}
+
 .log-toggle {
     margin-top: auto;
 }
@@ -181,5 +325,14 @@ header h1 {
 
     .btn-outline {
         border-radius: 14px;
+    }
+
+    .app-header {
+        align-items: flex-start;
+    }
+
+    .back-btn {
+        width: 100%;
+        justify-content: center;
     }
 }
