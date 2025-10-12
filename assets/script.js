@@ -49,6 +49,7 @@ const LOCATIONS_KEY = "dalitrail:locations";
 const installSection = document.querySelector(".about-view .install");
 const installBtn = document.getElementById("install-btn");
 const installStatusText = document.getElementById("install-status");
+const installHintText = document.getElementById("install-hint");
 const updateSection = document.getElementById("update-section");
 const updateBtn = document.getElementById("update-btn");
 let swRegistration = null;
@@ -72,6 +73,8 @@ const isIosDevice =
     /iphone|ipad|ipod/i.test(navigator.userAgent || "");
 const isAndroidDevice =
     typeof navigator !== "undefined" && /android/i.test(navigator.userAgent || "");
+const isWindowsDevice =
+    typeof navigator !== "undefined" && /windows/i.test(navigator.userAgent || "");
 let savedLocations = [];
 let isCapturingLocation = false;
 const selectedLocationIds = new Set();
@@ -81,6 +84,8 @@ const MAX_SEGMENT_METERS = 150; // Ignore improbable jumps
 const MAX_ACCURACY_METERS = 25; // Skip low-accuracy fixes
 const MIN_DISPLACEMENT_METERS = 6; // Require meaningful movement
 let deferredInstallPrompt = null;
+let installClickRequested = false;
+let installPromptWaitTimeoutId = null;
 
 const logEvent = (message) => {
     const item = document.createElement("li");
@@ -107,7 +112,11 @@ const showView = (view) => {
     appRoot.dataset.view = view;
     if (typeof localStorage !== "undefined") {
         try {
-            localStorage.setItem(LAST_VIEW_KEY, view);
+            if (view === "about") {
+                localStorage.removeItem(LAST_VIEW_KEY);
+            } else {
+                localStorage.setItem(LAST_VIEW_KEY, view);
+            }
         } catch {
             // Ignore storage errors (e.g., quota exceeded, disabled).
         }
@@ -1053,10 +1062,29 @@ const getManualInstallInstructions = () => {
     if (isIosDevice) {
         return "Use Safari's share sheet and choose Add to Home Screen.";
     }
-    if (isAndroidDevice) {
-        return "Open your browser menu and choose Add to Home Screen (Install app).";
+    if (isAndroidDevice || isWindowsDevice) {
+        return "Install prompt is still unavailable. Make sure you're online and using the latest Chrome or Edge, then refresh and try again.";
     }
-    return "Use your browser's Add to Home Screen or Install option.";
+    return "Install prompt isn't available in this browser. Try a supported browser like Chrome or Edge.";
+};
+
+const updateInstallHint = () => {
+    if (!installHintText) {
+        return;
+    }
+    if (isIosDevice) {
+        installHintText.textContent =
+            "On iPhone: open Safari’s share sheet and pick Add to Home Screen.";
+    } else if (isAndroidDevice) {
+        installHintText.textContent =
+            "On Android: tap Install to open the native prompt. If nothing appears, make sure you're in Chrome and try again.";
+    } else if (isWindowsDevice) {
+        installHintText.textContent =
+            "On Windows: tap Install to open the browser prompt. Use Chrome or Edge and try again if nothing appears.";
+    } else {
+        installHintText.textContent =
+            "Tap Install to open your browser’s install prompt when supported.";
+    }
 };
 
 const showManualInstallInstructions = (showAlert = false) => {
@@ -1064,8 +1092,77 @@ const showManualInstallInstructions = (showAlert = false) => {
     if (installStatusText) {
         installStatusText.textContent = message;
     }
+    updateInstallHint();
     if (showAlert) {
         alert(message);
+    }
+};
+
+updateInstallHint();
+
+const clearInstallPromptWait = () => {
+    if (installPromptWaitTimeoutId !== null) {
+        window.clearTimeout(installPromptWaitTimeoutId);
+        installPromptWaitTimeoutId = null;
+    }
+};
+
+const promptInstall = async () => {
+    if (!deferredInstallPrompt || !installBtn) {
+        return;
+    }
+    installClickRequested = false;
+    clearInstallPromptWait();
+    installBtn.disabled = true;
+    if (installStatusText) {
+        installStatusText.textContent = "Displaying install prompt...";
+    }
+    let fallbackTimer = null;
+    const scheduleFallbackNotice = () => {
+        if (!installStatusText) {
+            return;
+        }
+        fallbackTimer = window.setTimeout(() => {
+            installBtn.disabled = false;
+            installStatusText.textContent = `Install prompt might be blocked. ${getManualInstallInstructions()}`;
+        }, 5000);
+    };
+    try {
+        scheduleFallbackNotice();
+        await deferredInstallPrompt.prompt();
+        const choicePromise = deferredInstallPrompt.userChoice;
+        if (!choicePromise) {
+            installBtn.disabled = false;
+            if (installStatusText) {
+                installStatusText.textContent = `Install prompt may not be supported here. ${getManualInstallInstructions()}`;
+            }
+            return;
+        }
+        const { outcome } = await choicePromise;
+        if (fallbackTimer) {
+            window.clearTimeout(fallbackTimer);
+            fallbackTimer = null;
+        }
+        logEvent(`Install prompt outcome: ${outcome}.`);
+        if (outcome === "accepted") {
+            installSection.hidden = true;
+        } else {
+            installBtn.disabled = false;
+            if (installStatusText) {
+                installStatusText.textContent = "Install was cancelled. You can try again anytime.";
+            }
+        }
+    } catch (error) {
+        logEvent(`Install prompt failed: ${error instanceof Error ? error.message : String(error)}`);
+        installBtn.disabled = false;
+        if (installStatusText) {
+            installStatusText.textContent = `Unable to open install prompt. ${getManualInstallInstructions()}`;
+        }
+    } finally {
+        if (fallbackTimer) {
+            window.clearTimeout(fallbackTimer);
+        }
+        deferredInstallPrompt = null;
     }
 };
 
@@ -1698,62 +1795,34 @@ backBtn?.addEventListener("click", () => {
     }
 });
 installBtn?.addEventListener("click", async () => {
-    if (!deferredInstallPrompt) {
-        logEvent("Install prompt unavailable. Showing manual instructions.");
+    if (deferredInstallPrompt) {
+        await promptInstall();
+        return;
+    }
+    if (isIosDevice) {
         showManualInstallInstructions(true);
         return;
     }
-    installBtn.disabled = true;
-    if (installStatusText) {
-        installStatusText.textContent = "Displaying install prompt...";
-    }
-    let fallbackTimer = null;
-    const scheduleFallbackNotice = () => {
-        if (!installStatusText) {
-            return;
-        }
-        fallbackTimer = window.setTimeout(() => {
-            installBtn.disabled = false;
-            installStatusText.textContent = `Install prompt might be blocked. ${getManualInstallInstructions()}`;
-        }, 5000);
-    };
-    try {
-        scheduleFallbackNotice();
-        await deferredInstallPrompt.prompt();
-        const choicePromise = deferredInstallPrompt.userChoice;
-        if (!choicePromise) {
-            installBtn.disabled = false;
-            if (installStatusText) {
-                installStatusText.textContent = `Install prompt may not be supported here. ${getManualInstallInstructions()}`;
-            }
-            return;
-        }
-        const { outcome } = await choicePromise;
-        if (fallbackTimer) {
-            window.clearTimeout(fallbackTimer);
-            fallbackTimer = null;
-        }
-        logEvent(`Install prompt outcome: ${outcome}.`);
-        if (outcome === "accepted") {
-            installSection.hidden = true;
-        } else {
-            installBtn.disabled = false;
-            if (installStatusText) {
-                installStatusText.textContent = "Install was cancelled. You can try again anytime.";
-            }
-        }
-    } catch (error) {
-        logEvent(`Install prompt failed: ${error instanceof Error ? error.message : String(error)}`);
-        installBtn.disabled = false;
+    if (isAndroidDevice || isWindowsDevice) {
+        installClickRequested = true;
         if (installStatusText) {
-            installStatusText.textContent = `Unable to open install prompt. ${getManualInstallInstructions()}`;
+            installStatusText.textContent = "Preparing install prompt...";
         }
-    } finally {
-        if (fallbackTimer) {
-            window.clearTimeout(fallbackTimer);
+        if (installBtn) {
+            installBtn.disabled = true;
         }
-        deferredInstallPrompt = null;
+        clearInstallPromptWait();
+        installPromptWaitTimeoutId = window.setTimeout(() => {
+            installClickRequested = false;
+            if (installBtn) {
+                installBtn.disabled = false;
+            }
+            showManualInstallInstructions(false);
+            installPromptWaitTimeoutId = null;
+        }, 4000);
+        return;
     }
+    showManualInstallInstructions(true);
 });
 
 updateMetrics();
@@ -1783,7 +1852,12 @@ if ("serviceWorker" in navigator) {
                 if (installBtn) {
                     installBtn.disabled = false;
                 }
-                showManualInstallInstructions(false);
+                if (installStatusText) {
+                    installStatusText.textContent = isIosDevice
+                        ? getManualInstallInstructions()
+                        : "Preparing install prompt...";
+                }
+                updateInstallHint();
                 updateSection?.removeAttribute("hidden");
                 if (updateBtn) {
                     updateBtn.disabled = false;
@@ -1849,9 +1923,14 @@ window.addEventListener("beforeinstallprompt", (event) => {
         installBtn.disabled = false;
     }
     if (installStatusText) {
-        installStatusText.textContent =
-            "Ready to install DaliTrail on this device.";
+        installStatusText.textContent = "Ready to install DaliTrail on this device.";
     }
+    updateInstallHint();
+    clearInstallPromptWait();
+    if (installClickRequested) {
+        void promptInstall();
+    }
+    installClickRequested = false;
     logEvent("Install prompt ready. Tap Install App to add to home screen.");
 });
 
@@ -1914,7 +1993,7 @@ const loadInitialView = () => {
     }
     try {
         const stored = localStorage.getItem(LAST_VIEW_KEY);
-        if (stored && stored in VIEWS) {
+        if (stored && stored in VIEWS && stored !== "about") {
             return stored;
         }
     } catch {
