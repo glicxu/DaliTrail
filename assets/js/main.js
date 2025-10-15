@@ -1,0 +1,349 @@
+// MAIN: app shell, navigation, install/update plumbing, and wiring.
+// Load this with: <script type="module" src="/js/main.js"></script>
+
+import {
+  loadSavedLocations,
+  renderLatestLocation,
+  renderLocationHistory,
+  captureCurrentLocation,
+  saveManualLocation,
+  openSelectedLocations,
+  shareSelectedLocations,
+  deleteSelectedLocations,
+  applyLocationMode,
+} from "./location.js";
+
+import {
+  startTracking,
+  pauseTracking,
+  finishTracking,
+  openRouteInMaps,
+  updateMetrics,
+  restoreTrailState,
+  hasActiveWatch,
+} from "./track.js";
+
+// ---------- DOM ----------
+const appRoot = document.querySelector(".app");
+const backBtn = document.getElementById("back-btn");
+const homeView = document.querySelector('.home-view[data-view="home"]');
+const aboutView = document.querySelector('.about-view[data-view="about"]');
+const locationView = document.querySelector('.location-view[data-view="location"]');
+const locationHistoryView = document.querySelector('.location-history-view[data-view="location-history"]');
+const trackView = document.querySelector('.track-view[data-view="track"]');
+const openLocationViewBtn = document.getElementById("open-location-view-btn");
+const openTrackViewBtn = document.getElementById("open-track-view-btn");
+const openAboutViewBtn = document.getElementById("open-about-view-btn");
+
+const installSection = document.querySelector(".about-view .install");
+const installBtn = document.getElementById("install-btn");
+const installStatusText = document.getElementById("install-status");
+const installHintText = document.getElementById("install-hint");
+const updateSection = document.getElementById("update-section");
+const updateBtn = document.getElementById("update-btn");
+const statusText = document.getElementById("status-text");
+
+const toggleLogBtn = document.getElementById("toggle-log-btn");
+const logSection = document.querySelector(".log");
+
+const openMapsBtn = document.getElementById("open-maps-btn");
+
+const locationModeInputs = document.querySelectorAll('input[name="location-mode"]');
+const manualCoordinateInput = document.getElementById("manual-coordinate-input");
+const saveManualLocationBtn = document.getElementById("save-manual-location-btn");
+
+const captureLocationBtn = document.getElementById("capture-location-btn");
+const openLocationHistoryBtn = document.getElementById("open-location-history-btn");
+const historyViewBtn = document.getElementById("history-view-btn");
+const historyShareBtn = document.getElementById("history-share-btn");
+const historyDeleteBtn = document.getElementById("history-delete-btn");
+
+const startBtn = document.getElementById("start-btn");
+const pauseBtn = document.getElementById("pause-btn");
+const finishBtn = document.getElementById("finish-btn");
+
+const LAST_VIEW_KEY = "dalitrail:last-view";
+const isIosDevice = typeof navigator !== "undefined" && /iphone|ipad|ipod/i.test(navigator.userAgent || "");
+const isAndroidDevice = typeof navigator !== "undefined" && /android/i.test(navigator.userAgent || "");
+const isWindowsDevice = typeof navigator !== "undefined" && /windows/i.test(navigator.userAgent || "");
+const isSecure = window.isSecureContext || window.location.hostname === "localhost";
+
+let deferredInstallPrompt = null;
+let installClickRequested = false;
+let installPromptWaitTimeoutId = null;
+let swRegistration = null;
+
+// ---------- Views ----------
+const VIEWS = { home: homeView, about: aboutView, location: locationView, "location-history": locationHistoryView, track: trackView };
+
+const showView = (view) => {
+  if (!(view in VIEWS)) throw new Error(`Unknown view: ${view}`);
+  appRoot.dataset.view = view;
+  try {
+    if (view === "about") localStorage.removeItem(LAST_VIEW_KEY);
+    else localStorage.setItem(LAST_VIEW_KEY, view);
+  } catch { /* ignore */ }
+
+  Object.entries(VIEWS).forEach(([name, section]) => section && (section.hidden = name !== view));
+  if (backBtn) {
+    backBtn.hidden = view === "home";
+    backBtn.disabled = view === "home";
+    backBtn.tabIndex = view === "home" ? -1 : 0;
+  }
+  if (view === "track") {
+    hideLog();
+    updateMetrics();
+  }
+};
+
+const loadInitialView = () => {
+  try {
+    const stored = localStorage.getItem(LAST_VIEW_KEY);
+    if (stored && stored in VIEWS && stored !== "about") return stored;
+  } catch { /* ignore */ }
+  return appRoot?.dataset.view || "home";
+};
+
+// ---------- Log ----------
+const showLog = () => {
+  if (!logSection || !toggleLogBtn) return;
+  logSection.hidden = false;
+  toggleLogBtn.textContent = "Hide Log";
+  toggleLogBtn.setAttribute("aria-expanded", "true");
+};
+const hideLog = () => {
+  if (!logSection || !toggleLogBtn) return;
+  logSection.hidden = true;
+  toggleLogBtn.textContent = "Show Log";
+  toggleLogBtn.setAttribute("aria-expanded", "false");
+  toggleLogBtn.classList.remove("notify");
+};
+const toggleLogVisibility = () => (logSection.hidden ? (toggleLogBtn.classList.remove("notify"), showLog()) : hideLog());
+
+// ---------- Install helpers ----------
+const getManualInstallInstructions = () => {
+  if (isIosDevice) return "Use Safari's share sheet and choose Add to Home Screen.";
+  if (isAndroidDevice || isWindowsDevice) return "Make sure you're online and using the latest Chrome/Edge, then refresh and try again.";
+  return "Try a supported browser like Chrome or Edge.";
+};
+
+const updateInstallHint = () => {
+  if (!installHintText) return;
+  if (isIosDevice) installHintText.textContent = "On iPhone: open Safari’s share sheet and pick Add to Home Screen.";
+  else if (isAndroidDevice) installHintText.textContent = "On Android: tap Install. If nothing appears, make sure you're in Chrome and try again.";
+  else if (isWindowsDevice) installHintText.textContent = "On Windows: tap Install in Chrome/Edge. If nothing appears, try again.";
+  else installHintText.textContent = "Tap Install to open your browser’s install prompt when supported.";
+};
+
+const clearInstallPromptWait = () => {
+  if (installPromptWaitTimeoutId !== null) {
+    window.clearTimeout(installPromptWaitTimeoutId);
+    installPromptWaitTimeoutId = null;
+  }
+};
+
+const promptInstall = async () => {
+  if (!deferredInstallPrompt || !installBtn) return;
+  installClickRequested = false;
+  clearInstallPromptWait();
+  installBtn.disabled = true;
+  installStatusText && (installStatusText.textContent = "Displaying install prompt...");
+  let fallbackTimer = null;
+  const scheduleFallbackNotice = () => {
+    if (!installStatusText) return;
+    fallbackTimer = window.setTimeout(() => {
+      installBtn.disabled = false;
+      installStatusText.textContent = `Install prompt might be blocked. ${getManualInstallInstructions()}`;
+    }, 5000);
+  };
+  try {
+    scheduleFallbackNotice();
+    await deferredInstallPrompt.prompt();
+    const choice = deferredInstallPrompt.userChoice && (await deferredInstallPrompt.userChoice);
+    if (fallbackTimer) window.clearTimeout(fallbackTimer);
+    if (!choice) {
+      installBtn.disabled = false;
+      installStatusText && (installStatusText.textContent = `Install prompt may not be supported here. ${getManualInstallInstructions()}`);
+      return;
+    }
+    if (choice.outcome === "accepted") {
+      installSection.hidden = true;
+    } else {
+      installBtn.disabled = false;
+      installStatusText && (installStatusText.textContent = "Install was cancelled. You can try again anytime.");
+    }
+  } catch {
+    installBtn.disabled = false;
+    installStatusText && (installStatusText.textContent = `Unable to open install prompt. ${getManualInstallInstructions()}`);
+  } finally {
+    if (fallbackTimer) window.clearTimeout(fallbackTimer);
+    deferredInstallPrompt = null;
+  }
+};
+
+// ---------- Permissions banner ----------
+const setStatus = (message) => (statusText.textContent = message);
+const updatePermissionBanner = (geoPermission) => {
+  if (geoPermission === "denied") {
+    setStatus("Location access denied. Enable it in your browser settings to continue.");
+  }
+};
+
+// ---------- Wire events ----------
+openMapsBtn?.addEventListener("click", openRouteInMaps);
+toggleLogBtn?.addEventListener("click", toggleLogVisibility);
+
+locationModeInputs.forEach((input) => {
+  if (!(input instanceof HTMLInputElement)) return;
+  input.addEventListener("change", (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    applyLocationMode(target.value);
+    if (target.value === "manual") manualCoordinateInput?.focus();
+  });
+});
+saveManualLocationBtn?.addEventListener("click", saveManualLocation);
+captureLocationBtn?.addEventListener("click", captureCurrentLocation);
+
+openLocationViewBtn?.addEventListener("click", () => showView("location"));
+openTrackViewBtn?.addEventListener("click", () => showView("track"));
+openAboutViewBtn?.addEventListener("click", () => showView("about"));
+
+openLocationHistoryBtn?.addEventListener("click", () => {
+  renderLocationHistory();
+  showView("location-history");
+});
+historyViewBtn?.addEventListener("click", openSelectedLocations);
+historyShareBtn?.addEventListener("click", () => void shareSelectedLocations());
+historyDeleteBtn?.addEventListener("click", deleteSelectedLocations);
+
+backBtn?.addEventListener("click", () => {
+  const current = appRoot?.dataset.view;
+  showView(current === "location-history" ? "location" : "home");
+});
+
+installBtn?.addEventListener("click", async () => {
+  if (deferredInstallPrompt) return void promptInstall();
+  if (isIosDevice) return alert(getManualInstallInstructions());
+  if (isAndroidDevice || isWindowsDevice) {
+    installClickRequested = true;
+    installStatusText && (installStatusText.textContent = "Preparing install prompt...");
+    installBtn && (installBtn.disabled = true);
+    clearInstallPromptWait();
+    installPromptWaitTimeoutId = window.setTimeout(() => {
+      installClickRequested = false;
+      installBtn && (installBtn.disabled = false);
+      installStatusText && (installStatusText.textContent = getManualInstallInstructions());
+      installPromptWaitTimeoutId = null;
+    }, 4000);
+    return;
+  }
+  alert(getManualInstallInstructions());
+});
+
+updateBtn?.addEventListener("click", async () => {
+  if (!updateBtn) return;
+  const originalText = updateBtn.textContent || "Check for Updates";
+  updateBtn.disabled = true;
+  updateBtn.textContent = "Checking...";
+  try {
+    if (swRegistration?.update) await swRegistration.update();
+    window.location.reload();
+  } catch (error) {
+    console.log("Update check failed:", error);
+    updateBtn.disabled = false;
+    updateBtn.textContent = originalText;
+  }
+});
+
+// Pause recording when app hidden (battery-friendly)
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && hasActiveWatch()) {
+    pauseTracking();
+    console.log("App hidden; trail paused to conserve battery.");
+  }
+});
+
+// PWA: service worker + install prompt
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker
+      .register("/service-worker.js")
+      .then((registration) => {
+        swRegistration = registration;
+        installSection?.removeAttribute("hidden");
+        installBtn && (installBtn.disabled = false);
+        installStatusText && (installStatusText.textContent = isIosDevice ? getManualInstallInstructions() : "Preparing install prompt...");
+        updateInstallHint();
+        updateSection?.removeAttribute("hidden");
+        if (updateBtn) {
+          updateBtn.disabled = false;
+          updateBtn.textContent = "Check for Updates";
+        }
+      })
+      .catch((error) => console.log("SW registration failed:", error));
+  });
+}
+
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  installSection?.removeAttribute("hidden");
+  installBtn && (installBtn.disabled = false);
+  installStatusText && (installStatusText.textContent = "Ready to install DaliTrail on this device.");
+  updateInstallHint();
+  clearInstallPromptWait();
+  if (installClickRequested) void promptInstall();
+  installClickRequested = false;
+  console.log("Install prompt ready.");
+});
+
+window.addEventListener("appinstalled", () => {
+  deferredInstallPrompt = null;
+  installSection && (installSection.hidden = true);
+  installStatusText && (installStatusText.textContent = "DaliTrail is already installed on this device.");
+});
+
+// Geolocation permission banner
+let geoPermission = "prompt";
+if (navigator.permissions?.query) {
+  navigator.permissions
+    .query({ name: "geolocation" })
+    .then((status) => {
+      geoPermission = status.state;
+      updatePermissionBanner(geoPermission);
+      status.onchange = () => {
+        geoPermission = status.state;
+        updatePermissionBanner(geoPermission);
+      };
+    })
+    .catch(() => {});
+}
+
+// ---------- Init ----------
+updateInstallHint();
+updateMetrics();
+restoreTrailState();
+loadSavedLocations();
+renderLatestLocation();
+renderLocationHistory();
+showView(loadInitialView());
+
+if (!isSecure) {
+  setStatus("Open this app via HTTPS (or localhost) to enable location tracking.");
+}
+
+// Put this in main.js (anywhere that runs once on startup)
+let _reloading = false;
+navigator.serviceWorker?.addEventListener("controllerchange", () => {
+  if (_reloading) return;
+  _reloading = true;
+  // Optional: only reload when the tab is visible to avoid odd UX
+  if (document.visibilityState === "visible") {
+    window.location.reload();
+  } else {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") window.location.reload();
+    }, { once: true });
+  }
+});

@@ -1,11 +1,14 @@
-const CACHE_NAME = "dalitrail-cache-v2";
-const ASSETS = [
-  "/",
+// service-worker.js
+const PRECACHE = "dalitrail-precache-v3";     // bump when asset list changes
+const RUNTIME  = "dalitrail-runtime-v3";
+
+const PRECACHE_ASSETS = [
+  // ⚠️ No "/" and no "/index.html" here
   "/manifest.webmanifest",
-  "/service-worker.js",
   "/assets/style.css",
-  "/assets/script.js",
-  "/index.html",
+  "/assets/js/main.js",
+  "/assets/js/location.js",   
+  "/assets/js/track.js",              
   "/assets/icons/icon-180.png",
   "/assets/icons/icon-192.png",
   "/assets/icons/icon-512.png"
@@ -13,7 +16,7 @@ const ASSETS = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
+    caches.open(PRECACHE).then((cache) => cache.addAll(PRECACHE_ASSETS))
   );
   self.skipWaiting();
 });
@@ -23,8 +26,8 @@ self.addEventListener("activate", (event) => {
     caches.keys().then((keys) =>
       Promise.all(
         keys
-          .filter((key) => key !== CACHE_NAME)
-          .map((key) => caches.delete(key))
+          .filter((k) => k !== PRECACHE && k !== RUNTIME)
+          .map((k) => caches.delete(k))
       )
     )
   );
@@ -32,30 +35,42 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  const { request } = event;
-  if (request.method !== "GET") {
+  const req = event.request;
+
+  // Only handle GET
+  if (req.method !== "GET") return;
+
+  const accept = req.headers.get("accept") || "";
+
+  // 1) HTML -> network-first
+  if (req.mode === "navigate" || accept.includes("text/html")) {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          // Optionally cache a copy of the latest HTML in RUNTIME (not required)
+          const copy = res.clone();
+          caches.open(RUNTIME).then((cache) => cache.put(req, copy));
+          return res;
+        })
+        .catch(() => caches.match(req)) // fallback to cache if offline
+    );
     return;
   }
 
-  event.respondWith(
-    caches.match(request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(request).then((networkResponse) => {
-        if (
-          !networkResponse ||
-          networkResponse.status !== 200 ||
-          networkResponse.type !== "basic"
-        ) {
-          return networkResponse;
-        }
-        const responseToCache = networkResponse.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(request, responseToCache);
+  // 2) Same-origin static assets -> cache-first, populate runtime cache
+  if (new URL(req.url).origin === self.location.origin) {
+    event.respondWith(
+      caches.match(req).then((cached) => {
+        if (cached) return cached;
+        return fetch(req).then((res) => {
+          // only cache good, basic responses
+          if (res && res.status === 200 && res.type === "basic") {
+            const copy = res.clone();
+            caches.open(RUNTIME).then((cache) => cache.put(req, copy));
+          }
+          return res;
         });
-        return networkResponse;
-      });
-    })
-  );
+      })
+    );
+  }
 });

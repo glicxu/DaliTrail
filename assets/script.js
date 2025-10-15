@@ -1,4 +1,4 @@
-const appRoot = document.querySelector(".app");
+/* const appRoot = document.querySelector(".app");
 const backBtn = document.getElementById("back-btn");
 const homeView = document.querySelector('.home-view[data-view="home"]');
 const aboutView = document.querySelector('.about-view[data-view="about"]');
@@ -180,6 +180,7 @@ const loadSavedLocations = () => {
             .map((entry) => ({
                 ...entry,
                 note: typeof entry.note === "string" ? entry.note : "",
+                altitude: Number.isFinite(entry.altitude) ? entry.altitude : null, // ensure normalized
             }))
             .sort((a, b) => b.timestamp - a.timestamp);
     } catch {
@@ -235,6 +236,7 @@ const renderLatestLocation = () => {
                 ? `<span>Accuracy: +/-${latest.accuracy.toFixed(1)} m</span>`
                 : ""
         }
+        ${Number.isFinite(latest.altitude) ? `<span>Elevation: ${latest.altitude.toFixed(1)} m</span>` : ""} 
     `;
     latestLocationCard.appendChild(meta);
 
@@ -305,6 +307,7 @@ const renderLocationHistory = () => {
                     ? `<span>Accuracy: +/-${entry.accuracy.toFixed(1)} m</span>`
                     : ""
             }
+            ${Number.isFinite(entry.altitude) ? `<span>Elevation: ${entry.altitude.toFixed(1)} m</span>` : ""}
         `;
         card.appendChild(meta);
         if (entry.note) {
@@ -501,9 +504,10 @@ const openLocationMap = (entry) => {
 
 const shareLocationEntry = async (entry) => {
     const noteLine = entry.note ? `\nNote: ${entry.note}` : "";
+    const elevationLine = Number.isFinite(entry.altitude) ? `\nElevation: ${entry.altitude.toFixed(1)} m` : "";
     const message = `Location recorded on ${formatTimestamp(
         entry.timestamp
-    )}\nLat: ${entry.lat.toFixed(6)}\nLng: ${entry.lng.toFixed(6)}${noteLine}\n\nSent from DaliTrail.`;
+    )}\nLat: ${entry.lat.toFixed(6)}\nLng: ${entry.lng.toFixed(6)}${elevationLine}${noteLine}\n\nSent from DaliTrail.`;
 
     const shareData = {
         title: "Saved location",
@@ -569,16 +573,22 @@ const shareSelectedLocations = async () => {
             const accuracy = Number.isFinite(entry.accuracy)
                 ? `Accuracy: +/-${entry.accuracy.toFixed(1)} m\n`
                 : "";
-            return `#${index + 1} ${formatTimestamp(entry.timestamp)}\nLat: ${entry.lat.toFixed(6)}\nLng: ${entry.lng.toFixed(6)}\n${accuracy}${note}`;
+            const elevation = Number.isFinite(entry.altitude)
+                ? `Elevation: ${entry.altitude.toFixed(1)} m\n`
+                : "";
+            return `#${index + 1} ${formatTimestamp(entry.timestamp)}\nLat: ${entry.lat.toFixed(6)}\nLng: ${entry.lng.toFixed(6)}\n${accuracy}${elevation}${note}`;
         });
         const shareText = `Saved locations from DaliTrail:\n\n${lines.join("\n")}\nSent via DaliTrail.`;
 
         const buildLocationsKml = () => {
             const name = `DaliTrail-locations-${new Date().toISOString()}`;
             const placemarks = selected
-                .map(
-                    (entry, index) => `\n    <Placemark>\n      <name>Location ${index + 1}</name>\n      <description><![CDATA[\n${entry.note ? `${entry.note}\n` : ""}Recorded: ${formatTimestamp(entry.timestamp)}\nLatitude: ${entry.lat.toFixed(6)}\nLongitude: ${entry.lng.toFixed(6)}\n${Number.isFinite(entry.accuracy) ? `Accuracy: +/-${entry.accuracy.toFixed(1)} m` : ""}\n      ]]></description>\n      <Point>\n        <coordinates>${entry.lng.toFixed(6)},${entry.lat.toFixed(6)},0</coordinates>\n      </Point>\n    </Placemark>`
-                )
+                .map((entry, index) => {
+                    const altValue = Number.isFinite(entry.altitude) ? entry.altitude : 0;
+                    const elevationLine = Number.isFinite(entry.altitude) ? `Elevation: ${entry.altitude.toFixed(1)} m\n` : "";
+                    const accuracyLine = Number.isFinite(entry.accuracy) ? `Accuracy: +/-${entry.accuracy.toFixed(1)} m\n` : "";
+                    return `\n    <Placemark>\n      <name>Location ${index + 1}</name>\n      <description><![CDATA[\n${entry.note ? `${entry.note}\n` : ""}Recorded: ${formatTimestamp(entry.timestamp)}\nLatitude: ${entry.lat.toFixed(6)}\nLongitude: ${entry.lng.toFixed(6)}\n${accuracyLine}${elevationLine}      ]]></description>\n      <Point>\n        <coordinates>${entry.lng.toFixed(6)},${entry.lat.toFixed(6)},${altValue.toFixed(1)}</coordinates>\n      </Point>\n    </Placemark>`;
+                })
                 .join("\n");
             return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n  <Document>\n    <name>${name}</name>\n${placemarks}\n  </Document>\n</kml>`;
         };
@@ -690,7 +700,6 @@ const shareSelectedLocations = async () => {
     }
 };
 shareSelectedLocations.isSharing = false;
-
 
 const deleteSelectedLocations = () => {
     const selected = getSelectedLocations();
@@ -834,6 +843,7 @@ const captureCurrentLocation = async () => {
             lat: fused.lat,
             lng: fused.lng,
             accuracy: Number.isFinite(fused.accuracy) ? fused.accuracy : null,
+            altitude: Number.isFinite(fused.altitude) ? fused.altitude : null, // save elevation
             note,
             timestamp: fused.timestamp,
         };
@@ -1036,6 +1046,7 @@ const saveManualLocation = () => {
         lat,
         lng,
         accuracy,
+        altitude: null, // manual entries default to null elevation unless you add a field
         note,
         timestamp,
     };
@@ -1218,7 +1229,7 @@ const haversineDistance = (pointA, pointB) => {
     const a =
         Math.sin(dLat / 2) ** 2 +
         Math.sin(dLon / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const c = 2 * Math.atan2(Math.sqrt(1 - a), Math.sqrt(a));
     return earthRadius * c;
 };
 
@@ -1296,7 +1307,6 @@ const resetTrail = () => {
     logEvent("New trail session started.");
     persistTrailState();
 };
-
 
 const sanitizeAltitude = (altitude) => {
     return Number.isFinite(altitude) ? altitude : null;
@@ -1825,15 +1835,18 @@ installBtn?.addEventListener("click", async () => {
     showManualInstallInstructions(true);
 });
 
-updateMetrics();
-restoreTrailState();
-if (points.length === 0 && !hasFinished) {
-    setStatus("Ready when you are.");
-}
-if (!isSecure) {
-    setStatus("Open this app via HTTPS (or localhost) to enable location tracking.");
-    logEvent("Waiting for secure context to access geolocation.");
-}
+const updateMetricsInit = () => {
+    updateMetrics();
+    restoreTrailState();
+    if (points.length === 0 && !hasFinished) {
+        setStatus("Ready when you are.");
+    }
+    if (!isSecure) {
+        setStatus("Open this app via HTTPS (or localhost) to enable location tracking.");
+        logEvent("Waiting for secure context to access geolocation.");
+    }
+};
+updateMetricsInit();
 
 document.addEventListener("visibilitychange", () => {
     if (document.hidden && watchId !== null) {
@@ -2002,4 +2015,4 @@ const loadInitialView = () => {
     return appRoot?.dataset.view || "home";
 };
 showView(loadInitialView());
-
+ */

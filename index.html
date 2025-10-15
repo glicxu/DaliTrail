@@ -10,6 +10,10 @@
     <link rel="apple-touch-icon" sizes="192x192" href="/assets/icons/icon-192.png">
     <link rel="apple-touch-icon" sizes="512x512" href="/assets/icons/icon-512.png">
     <link rel="stylesheet" href="assets/style.css">
+
+    <!-- Preload ESM dependencies for faster startup -->
+    <link rel="modulepreload" href="/assets/js/location.js">
+    <link rel="modulepreload" href="/assets/js/track.js">
 </head>
 <body>
     <main class="app" data-view="home">
@@ -129,6 +133,7 @@
                 <button class="btn btn-danger" id="history-delete-btn" disabled>Delete</button>
             </div>
         </section>
+
         <section class="view track-view" data-view="track" hidden>
             <div class="controls">
                 <button class="btn btn-primary" id="start-btn">Start</button>
@@ -151,10 +156,10 @@
                 <h2>Export</h2>
                 <button class="btn btn-primary" id="open-maps-btn">Open in Maps</button>
             </section>
-
         </section>
     </main>
 
-    <script src="assets/script.js" type="module"></script>
+    <!-- Load ES modules entry -->
+    <script type="module" src="/assets/js/main.js"></script>
 </body>
 </html>
