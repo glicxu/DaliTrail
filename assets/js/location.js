@@ -36,6 +36,19 @@ let locationMode = "auto";
 const haversineDistance = (a, b) => haversineMeters(a, b);
 const sanitizeAltitude = (altitude) => (Number.isFinite(altitude) ? altitude : null);
 
+// Small helper to keep action buttons DRY
+function ensureActionButton(id, className, text, container, insertBefore = null) {
+  let btn = document.getElementById(id);
+  if (!btn && container) {
+    btn = document.createElement("button");
+    btn.id = id;
+    btn.className = className;
+    btn.textContent = text;
+    container.insertBefore(btn, insertBefore || null);
+  }
+  return btn;
+}
+
 // ----- persistence -----
 export const persistSavedLocations = () => {
   try {
@@ -165,15 +178,23 @@ const updateHistoryActions = () => {
   const historyDeleteBtn = document.getElementById("history-delete-btn");
   const actionsRow = document.querySelector(".history-actions");
 
-  // Ensure "Walk to this location" button exists (injected; no HTML change needed)
-  let walkBtn = document.getElementById("history-walk-btn");
-  if (!walkBtn && actionsRow) {
-    walkBtn = document.createElement("button");
-    walkBtn.id = "history-walk-btn";
-    walkBtn.className = "btn btn-outline";
-    walkBtn.textContent = "Walk to this location";
-    actionsRow.insertBefore(walkBtn, historyDeleteBtn || null);
-  }
+  // Ensure "Walk to this location"
+  const walkBtn = ensureActionButton(
+    "history-walk-btn",
+    "btn btn-outline",
+    "Walk to this location",
+    actionsRow,
+    historyDeleteBtn || null
+  );
+
+  // Ensure "Sketch Map" (relative drawing, no tiles)
+  const sketchBtn = ensureActionButton(
+    "history-sketch-btn",
+    "btn btn-outline",
+    "Sketch Map",
+    actionsRow,
+    historyDeleteBtn || null
+  );
 
   const selCount = selectedLocationIds.size;
   const hasSelection = selCount > 0;
@@ -182,6 +203,7 @@ const updateHistoryActions = () => {
   if (historyShareBtn) historyShareBtn.disabled = !hasSelection;
   if (historyDeleteBtn) historyDeleteBtn.disabled = !hasSelection;
   if (walkBtn) walkBtn.disabled = selCount !== 1;
+  if (sketchBtn) sketchBtn.disabled = !hasSelection; // allow 1+
 };
 
 document.getElementById("locations-list")?.addEventListener("change", (event) => {
@@ -204,15 +226,28 @@ latestLocationCard?.addEventListener("click", (event) => {
   if (btn.dataset.action === "share") void shareLocationEntry(entry);
 });
 
-// Handle "Walk to this location" click
-document.addEventListener("click", (e) => {
+// Delegated clicks for Walk + Sketch (lazy-load sketch module)
+document.addEventListener("click", async (e) => {
   const btn = e.target;
   if (!(btn instanceof HTMLButtonElement)) return;
-  if (btn.id !== "history-walk-btn") return;
 
-  const selected = getSelectedLocations();
-  if (selected.length !== 1) return;
-  startWalkingTo(selected[0]);
+  if (btn.id === "history-walk-btn") {
+    const selected = getSelectedLocations();
+    if (selected.length !== 1) return;
+    startWalkingTo(selected[0]);
+  }
+
+  if (btn.id === "history-sketch-btn") {
+    const pts = getSelectedLocations();
+    if (!pts.length) return;
+    try {
+      const { openSketchMapOverlay } = await import("/assets/js/sketch.js");
+      openSketchMapOverlay(pts);
+    } catch (err) {
+      console.error("Failed to load sketch module:", err);
+      alert("Sketch Map module could not be loaded.");
+    }
+  }
 });
 
 // ----- geolocation fusion -----
@@ -794,20 +829,18 @@ function startWalkingTo(entry) {
     </div>
   `;
 
-
-  // Minimal scoped styles
+  // Minimal scoped styles (high contrast)
   const style = document.createElement("style");
-  // Replace your existing style.textContent for the walk overlay with this:
   style.textContent = `
   .walk-overlay{
     position:fixed;inset:0;z-index:9999;
-    background:rgba(0,0,0,.55);           /* darker scrim for contrast */
+    background:rgba(0,0,0,.55);
     backdrop-filter:saturate(110%) blur(2px);
     display:flex;align-items:center;justify-content:center;
   }
   .walk-panel{
-    background:#ffffff;                    /* high contrast light mode */
-    color:#111827;                         /* slate-900-ish */
+    background:#ffffff;
+    color:#111827;
     max-width:560px;width:min(94%, 560px);
     border-radius:16px;
     box-shadow:0 18px 50px rgba(0,0,0,.35);
@@ -816,11 +849,11 @@ function startWalkingTo(entry) {
   }
   @media (prefers-color-scheme: dark){
     .walk-panel{
-      background:#0f172a;                  /* slate-900 */
-      color:#f8fafc;                       /* slate-50 */
+      background:#0f172a;
+      color:#f8fafc;
       border-color:rgba(255,255,255,.12);
     }
-    .walk-label{color:#cbd5e1;}            /* slate-300 */
+    .walk-label{color:#cbd5e1;}
   }
   .walk-header{
     display:flex;align-items:center;justify-content:space-between;
@@ -848,23 +881,23 @@ function startWalkingTo(entry) {
   }
   .walk-label{
     display:inline-block;min-width:9rem;
-    font-weight:700;                        /* stronger label */
-    color:#6b7280;                          /* slate-500 (overridden in dark) */
+    font-weight:700;
+    color:#6b7280;
   }
   #walk-distance{
-    font-weight:800;font-size:1.25rem;      /* bigger distance readout */
+    font-weight:800;font-size:1.25rem;
   }
   .walk-arrow{
     font-size:3.25rem;text-align:center;
     line-height:1;
     transform:rotate(0deg);
     transition:transform .15s ease;
-    color:#2563eb;                          /* blue-600 */
-    text-shadow:0 2px 8px rgba(0,0,0,.35);  /* improve readability on any bg */
+    color:#2563eb;
+    text-shadow:0 2px 8px rgba(0,0,0,.35);
     user-select:none;
   }
   @media (prefers-color-scheme: dark){
-    .walk-arrow{color:#60a5fa;}             /* blue-400 in dark */
+    .walk-arrow{color:#60a5fa;}
   }
   .status-text#walk-status{
     font-size:.95rem;opacity:.9;margin:.2rem 0 0 0
@@ -875,7 +908,6 @@ function startWalkingTo(entry) {
     font-weight:600
   }
  `;
-
   overlay.appendChild(style);
   document.body.appendChild(overlay);
 

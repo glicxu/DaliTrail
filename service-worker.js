@@ -28,6 +28,7 @@ const PRECACHE_ASSETS = [
   "/assets/js/location.js",
   "/assets/js/track.js",
   "/assets/js/utils.js",
+  "/assets/js/sketch.js",
 ];
 
 self.addEventListener("install", (event) => {
