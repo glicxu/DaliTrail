@@ -1,17 +1,28 @@
 // LOCATION: saved places CRUD, capture/manual entry, history rendering/sharing.
 
+import {
+  isSecure,
+  formatTimestamp,
+  formatElevation,
+  haversineMeters,
+  round6,
+  dedupeByKey,
+  parseIsoTime,
+  parseKmlCoordinateList as parseCoordinateList,
+  sampleLineVertices,
+  distanceAndDirection,     // used for walk-to overlay
+} from "/assets/js/utils.js";
+
 const LOCATIONS_KEY = "dalitrail:locations";
 const MAX_SAMPLES = 5;
 const SAMPLE_WINDOW_MS = 4500;
-
-const isSecure = window.isSecureContext || window.location.hostname === "localhost";
 
 // DOM
 const locationStatusText = document.getElementById("location-status");
 const latestLocationCard = document.getElementById("latest-location-card");
 const openLocationHistoryBtn = document.getElementById("open-location-history-btn");
 const locationsList = document.getElementById("locations-list");
-const locationHistoryStatus = document.getElementById("location-history-status");
+const locationHistoryStatus = document.getElementById("location-history-status"); // still used by history rendering
 const locationNoteInput = document.getElementById("location-note-input");
 const manualCoordinateInput = document.getElementById("manual-coordinate-input");
 const manualAccuracyInput = document.getElementById("manual-accuracy-input");
@@ -21,23 +32,9 @@ let savedLocations = [];
 const selectedLocationIds = new Set();
 let locationMode = "auto";
 
-// ----- utils -----
-const formatTimestamp = (value) => new Date(value).toLocaleString();
-const toRad = (v) => (v * Math.PI) / 180;
-const haversineDistance = (a, b) => {
-  const R = 6371000;
-  const dLat = toRad(b.lat - a.lat);
-  const dLon = toRad(b.lng - a.lng);
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
-  const x = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-};
+// ----- utils (local wrappers) -----
+const haversineDistance = (a, b) => haversineMeters(a, b);
 const sanitizeAltitude = (altitude) => (Number.isFinite(altitude) ? altitude : null);
-
-// NEW: always print something for elevation
-const formatElevation = (alt) =>
-  Number.isFinite(alt) ? `Elevation: ${alt.toFixed(1)} m` : "Elevation: not available";
 
 // ----- persistence -----
 export const persistSavedLocations = () => {
@@ -166,10 +163,25 @@ const updateHistoryActions = () => {
   const historyViewBtn = document.getElementById("history-view-btn");
   const historyShareBtn = document.getElementById("history-share-btn");
   const historyDeleteBtn = document.getElementById("history-delete-btn");
-  const hasSelection = selectedLocationIds.size > 0;
-  historyViewBtn && (historyViewBtn.disabled = !hasSelection);
-  historyShareBtn && (historyShareBtn.disabled = !hasSelection);
-  historyDeleteBtn && (historyDeleteBtn.disabled = !hasSelection);
+  const actionsRow = document.querySelector(".history-actions");
+
+  // Ensure "Walk to this location" button exists (injected; no HTML change needed)
+  let walkBtn = document.getElementById("history-walk-btn");
+  if (!walkBtn && actionsRow) {
+    walkBtn = document.createElement("button");
+    walkBtn.id = "history-walk-btn";
+    walkBtn.className = "btn btn-outline";
+    walkBtn.textContent = "Walk to this location";
+    actionsRow.insertBefore(walkBtn, historyDeleteBtn || null);
+  }
+
+  const selCount = selectedLocationIds.size;
+  const hasSelection = selCount > 0;
+
+  if (historyViewBtn) historyViewBtn.disabled = !hasSelection;
+  if (historyShareBtn) historyShareBtn.disabled = !hasSelection;
+  if (historyDeleteBtn) historyDeleteBtn.disabled = !hasSelection;
+  if (walkBtn) walkBtn.disabled = selCount !== 1;
 };
 
 document.getElementById("locations-list")?.addEventListener("change", (event) => {
@@ -190,6 +202,17 @@ latestLocationCard?.addEventListener("click", (event) => {
   if (!entry) return;
   if (btn.dataset.action === "view") openLocationMap(entry);
   if (btn.dataset.action === "share") void shareLocationEntry(entry);
+});
+
+// Handle "Walk to this location" click
+document.addEventListener("click", (e) => {
+  const btn = e.target;
+  if (!(btn instanceof HTMLButtonElement)) return;
+  if (btn.id !== "history-walk-btn") return;
+
+  const selected = getSelectedLocations();
+  if (selected.length !== 1) return;
+  startWalkingTo(selected[0]);
 });
 
 // ----- geolocation fusion -----
@@ -596,3 +619,308 @@ export const captureCurrentLocation = async () => {
     document.getElementById("capture-location-btn")?.removeAttribute("disabled");
   }
 };
+
+// ----- KML import -----
+// Now wired for the Location page (status messages use locationStatusText).
+(function setupKmlImport() {
+  const input = document.getElementById("kmlFileInput"); // input/button is in the Location view
+  if (!input) return;
+
+  input.addEventListener("change", async (e) => {
+    const file = e.target?.files?.[0];
+    if (!file) return;
+    try {
+      locationStatusText && (locationStatusText.textContent = "Importing KML...");
+      const kmlText = await file.text();
+      const parsed = parseKmlToEntries(kmlText);
+      if (!parsed.length) {
+        locationStatusText && (locationStatusText.textContent = "No importable coordinates found in KML.");
+        return;
+      }
+      const before = savedLocations.length;
+      mergeImportedLocations(parsed);
+      persistSavedLocations();
+      renderLatestLocation();
+      renderLocationHistory();
+      const added = savedLocations.length - before;
+      locationStatusText && (locationStatusText.textContent = `Imported ${parsed.length} from KML (${added} new).`);
+      alert(`Parsed ${parsed.length} points. Added ${added} new locations.`);
+    } catch (err) {
+      console.error(err);
+      const msg = err && typeof err === "object" && "message" in err ? err.message : String(err);
+      locationStatusText && (locationStatusText.textContent = `Failed to import KML: ${msg}`);
+      alert(`Failed to import KML: ${msg}`);
+    } finally {
+      e.target.value = ""; // allow re-importing the same file
+    }
+  });
+
+  function parseKmlToEntries(kmlText) {
+    const dom = new DOMParser().parseFromString(kmlText, "application/xml");
+    if (dom.querySelector("parsererror")) throw new Error("Invalid KML format.");
+
+    const q = (sel, root = dom) => root.querySelector(sel);
+    const qa = (sel, root = dom) => Array.from(root.querySelectorAll(sel));
+    const txt = (root, selectors) => {
+      for (const s of selectors) {
+        const el = q(s, root);
+        if (el && el.textContent) return el.textContent.trim();
+      }
+      return undefined;
+    };
+
+    const entries = [];
+
+    // Iterate all Placemarks
+    qa("Placemark").forEach((pm) => {
+      const name = txt(pm, ["name"]);
+      const desc = txt(pm, ["description"]);
+      const when = txt(pm, ["TimeStamp > when", "TimeSpan > begin"]);
+      const timestamp = parseIsoTime(when) ?? Date.now();
+
+      // Point
+      const coordRaw = txt(pm, ["Point > coordinates"]);
+      if (coordRaw) {
+        const [lng, lat, alt] = coordRaw.split(",").map((s) => Number(s.trim()));
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          entries.push(mkEntry({ lat, lng, alt, name, desc, timestamp, source: "Point" }));
+        }
+      }
+
+      // LineString (sampled)
+      const lineRaw = txt(pm, ["LineString > coordinates"]);
+      if (lineRaw) {
+        const linePts = parseCoordinateList(lineRaw);
+        const picks = sampleLineVertices(linePts);
+        picks.forEach((p, i) => {
+          entries.push(mkEntry({
+            lat: p.lat, lng: p.lng, alt: p.alt,
+            name: name ? `${name} [${i + 1}/${picks.length}]` : "Line vertex",
+            desc, timestamp, source: "LineString"
+          }));
+        });
+      }
+
+      // gx:Track
+      const track = q("gx\\:Track, Track", pm);
+      if (track) {
+        const whens = qa("when", track).map((w) => w.textContent.trim());
+        const coords = qa("gx\\:coord, coord", track).map((c) => c.textContent.trim().split(/\s+/).map(Number)); // lon lat alt
+        const n = Math.min(whens.length, coords.length);
+        for (let i = 0; i < n; i++) {
+          const [lng, lat, alt] = coords[i];
+          const t = parseIsoTime(whens[i]) ?? timestamp;
+          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+            entries.push(mkEntry({
+              lat, lng, alt, name: name ? `${name} (${i + 1}/${n})` : "Track point",
+              desc, timestamp: t, source: "gx:Track"
+            }));
+          }
+        }
+      }
+    });
+
+    // Deduplicate by rounded lat/lng + timestamp second
+    return dedupeByKey(entries, (e) => `${round6(e.lat)},${round6(e.lng)}@${Math.floor(e.timestamp / 1000)}`);
+  }
+
+  function mkEntry({ lat, lng, alt, name, desc, timestamp, source }) {
+    const altitude = Number.isFinite(alt) ? alt : null;
+    const baseNote = [name, desc].filter(Boolean).join(" — ").trim();
+    const note = baseNote || (source ? `Imported (${source})` : "Imported");
+    const id = `${timestamp}-${round6(lat)}-${round6(lng)}-${Math.random().toString(16).slice(2, 6)}`;
+    return {
+      id, lat, lng,
+      accuracy: null,
+      altitude,
+      note,
+      timestamp
+    };
+  }
+
+  function mergeImportedLocations(entries) {
+    // Avoid duplicates vs existing savedLocations using same rounded key
+    const existingKeys = new Set(
+      savedLocations.map((e) => `${round6(e.lat)},${round6(e.lng)}@${Math.floor(e.timestamp / 1000)}`)
+    );
+    const fresh = entries.filter((e) => !existingKeys.has(`${round6(e.lat)},${round6(e.lng)}@${Math.floor(e.timestamp / 1000)}`));
+    if (!fresh.length) return;
+
+    // Merge and sort by timestamp desc
+    savedLocations = [...fresh, ...savedLocations].sort((a, b) => b.timestamp - a.timestamp);
+  }
+})();
+
+// ----- Walk-to overlay (live distance & direction) -----
+function startWalkingTo(entry) {
+  if (!navigator.geolocation) {
+    alert("Geolocation is not supported on this device.");
+    return;
+  }
+  if (!isSecure) {
+    alert("Enable HTTPS (or use localhost) to access your location.");
+    return;
+  }
+
+  // Build overlay
+  const overlay = document.createElement("div");
+  overlay.className = "walk-overlay";
+  overlay.innerHTML = `
+  <div class="walk-panel" role="dialog" aria-modal="true" aria-label="Walk to this location">
+    <header class="walk-header">
+      <h2>Walk to this location</h2>
+      <button class="btn btn-outline walk-close" aria-label="Close">Close</button>
+    </header>
+    <div class="walk-body">
+      <p class="walk-target">Target:
+        <span class="mono">${entry.lat.toFixed(6)}, ${entry.lng.toFixed(6)}</span>
+        ${entry.note ? ` · ${entry.note.replace(/</g,"&lt;")}` : ""}
+      </p>
+      <div class="walk-stats">
+        <div><span class="walk-label">Distance</span> <span id="walk-distance">—</span></div>
+        <div><span class="walk-label">Direction</span> <span id="walk-bearing">—</span></div>
+        <div><span class="walk-label">GPS accuracy</span> <span id="walk-acc">—</span></div>
+        <div><span class="walk-label">ETA (walk)</span> <span id="walk-eta">—</span></div>
+      </div>
+
+      <p class="walk-note" id="walk-note">
+        Note: Distance and direction shown are straight-line (“as the crow flies”).
+        Use roads, trails, and local guidance to navigate safely.
+      </p>
+
+      <div class="walk-arrow" aria-hidden="true">➤</div>
+      <p class="status-text" id="walk-status">Getting your position…</p>
+      </div>
+    </div>
+  `;
+
+
+  // Minimal scoped styles
+  const style = document.createElement("style");
+  // Replace your existing style.textContent for the walk overlay with this:
+  style.textContent = `
+  .walk-overlay{
+    position:fixed;inset:0;z-index:9999;
+    background:rgba(0,0,0,.55);           /* darker scrim for contrast */
+    backdrop-filter:saturate(110%) blur(2px);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .walk-panel{
+    background:#ffffff;                    /* high contrast light mode */
+    color:#111827;                         /* slate-900-ish */
+    max-width:560px;width:min(94%, 560px);
+    border-radius:16px;
+    box-shadow:0 18px 50px rgba(0,0,0,.35);
+    padding:1rem 1rem 1.25rem;
+    border:1px solid rgba(0,0,0,.08);
+  }
+  @media (prefers-color-scheme: dark){
+    .walk-panel{
+      background:#0f172a;                  /* slate-900 */
+      color:#f8fafc;                       /* slate-50 */
+      border-color:rgba(255,255,255,.12);
+    }
+    .walk-label{color:#cbd5e1;}            /* slate-300 */
+  }
+  .walk-header{
+    display:flex;align-items:center;justify-content:space-between;
+    margin-bottom:.5rem
+  }
+  .walk-header h2{
+    margin:0;font-size:1.15rem;font-weight:700;letter-spacing:.2px
+  }
+  .walk-body{display:grid;gap:.9rem}
+  .walk-target{
+    margin:0;font-size:.98rem;line-height:1.4
+  }
+  .mono{
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace
+  }
+  .walk-stats{
+    display:grid;gap:.5rem;
+    font-size:1.05rem;
+    padding:.5rem .75rem;
+    border-radius:12px;
+    background:rgba(0,0,0,.04);
+  }
+  @media (prefers-color-scheme: dark){
+    .walk-stats{background:rgba(255,255,255,.06);}
+  }
+  .walk-label{
+    display:inline-block;min-width:9rem;
+    font-weight:700;                        /* stronger label */
+    color:#6b7280;                          /* slate-500 (overridden in dark) */
+  }
+  #walk-distance{
+    font-weight:800;font-size:1.25rem;      /* bigger distance readout */
+  }
+  .walk-arrow{
+    font-size:3.25rem;text-align:center;
+    line-height:1;
+    transform:rotate(0deg);
+    transition:transform .15s ease;
+    color:#2563eb;                          /* blue-600 */
+    text-shadow:0 2px 8px rgba(0,0,0,.35);  /* improve readability on any bg */
+    user-select:none;
+  }
+  @media (prefers-color-scheme: dark){
+    .walk-arrow{color:#60a5fa;}             /* blue-400 in dark */
+  }
+  .status-text#walk-status{
+    font-size:.95rem;opacity:.9;margin:.2rem 0 0 0
+  }
+  .btn.walk-close{
+    padding:.4rem .7rem;border-radius:10px;
+    border:1px solid currentColor;
+    font-weight:600
+  }
+ `;
+
+  overlay.appendChild(style);
+  document.body.appendChild(overlay);
+
+  const btnClose = overlay.querySelector(".walk-close");
+  const elDist  = overlay.querySelector("#walk-distance");
+  const elBear  = overlay.querySelector("#walk-bearing");
+  const elAcc   = overlay.querySelector("#walk-acc");
+  const elEta   = overlay.querySelector("#walk-eta");
+  const elStat  = overlay.querySelector("#walk-status");
+  const arrow   = overlay.querySelector(".walk-arrow");
+
+  let watchId = null;
+  const WALK_SPEED_MPS = 1.4; // avg walking speed
+
+  const cleanup = () => {
+    if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    overlay.remove();
+  };
+  btnClose.addEventListener("click", cleanup);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(); });
+
+  watchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      const cur = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      const { meters, bearingDegrees, compass } = distanceAndDirection(cur, entry);
+
+      elDist.textContent = meters < 995 ? `${Math.round(meters)} m` : `${(meters/1000).toFixed(2)} km`;
+      elBear.textContent = `${bearingDegrees.toFixed(0)}° (${compass})`;
+      elAcc.textContent = Number.isFinite(pos.coords.accuracy) ? `±${pos.coords.accuracy.toFixed(0)} m` : "n/a";
+
+      if (meters > 3) {
+        const secs = Math.round(meters / WALK_SPEED_MPS);
+        const mm = Math.floor(secs / 60), ss = secs % 60;
+        elEta.textContent = `${mm}m ${ss}s`;
+      } else {
+        elEta.textContent = "Arrived";
+      }
+
+      arrow.style.transform = `rotate(${bearingDegrees}deg)`;
+      elStat.textContent = "Updating…";
+    },
+    (err) => {
+      elStat.textContent = `GPS error: ${err.message || err}`;
+    },
+    { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
+  );
+}
