@@ -1,16 +1,13 @@
+// /assets/js/main.js
 // MAIN: app shell, navigation, install/update plumbing, and wiring.
-// Load this with: <script type="module" src="/js/main.js"></script>
 
 import {
   loadSavedLocations,
   renderLatestLocation,
   renderLocationHistory,
-  captureCurrentLocation,
-  saveManualLocation,
   openSelectedLocations,
   shareSelectedLocations,
   deleteSelectedLocations,
-  applyLocationMode,
 } from "./location.js";
 
 import {
@@ -31,6 +28,7 @@ const aboutView = document.querySelector('.about-view[data-view="about"]');
 const locationView = document.querySelector('.location-view[data-view="location"]');
 const locationHistoryView = document.querySelector('.location-history-view[data-view="location-history"]');
 const trackView = document.querySelector('.track-view[data-view="track"]');
+
 const openLocationViewBtn = document.getElementById("open-location-view-btn");
 const openTrackViewBtn = document.getElementById("open-track-view-btn");
 const openAboutViewBtn = document.getElementById("open-about-view-btn");
@@ -45,19 +43,21 @@ const statusText = document.getElementById("status-text");
 
 const toggleLogBtn = document.getElementById("toggle-log-btn");
 const logSection = document.querySelector(".log");
-
 const openMapsBtn = document.getElementById("open-maps-btn");
 
-const locationModeInputs = document.querySelectorAll('input[name="location-mode"]');
-const manualCoordinateInput = document.getElementById("manual-coordinate-input");
-const saveManualLocationBtn = document.getElementById("save-manual-location-btn");
+// NEW Location buttons
+const btnRecord = document.getElementById("btn-record-position");
+const btnEnter = document.getElementById("btn-enter-coords");
+const btnImport = document.getElementById("btn-import-kml");
+const kmlInput = document.getElementById("kmlFileInput");
 
-const captureLocationBtn = document.getElementById("capture-location-btn");
+// History actions
 const openLocationHistoryBtn = document.getElementById("open-location-history-btn");
 const historyViewBtn = document.getElementById("history-view-btn");
 const historyShareBtn = document.getElementById("history-share-btn");
 const historyDeleteBtn = document.getElementById("history-delete-btn");
 
+// Track controls
 const startBtn = document.getElementById("start-btn");
 const pauseBtn = document.getElementById("pause-btn");
 const finishBtn = document.getElementById("finish-btn");
@@ -82,7 +82,7 @@ const showView = (view) => {
   try {
     if (view === "about") localStorage.removeItem(LAST_VIEW_KEY);
     else localStorage.setItem(LAST_VIEW_KEY, view);
-  } catch { /* ignore */ }
+  } catch {}
 
   Object.entries(VIEWS).forEach(([name, section]) => section && (section.hidden = name !== view));
   if (backBtn) {
@@ -100,7 +100,7 @@ const loadInitialView = () => {
   try {
     const stored = localStorage.getItem(LAST_VIEW_KEY);
     if (stored && stored in VIEWS && stored !== "about") return stored;
-  } catch { /* ignore */ }
+  } catch {}
   return appRoot?.dataset.view || "home";
 };
 
@@ -189,21 +189,76 @@ const updatePermissionBanner = (geoPermission) => {
   }
 };
 
+// ---------- Location page button wiring ----------
+function ensureHiddenInputs() {
+  // location.js reads these by ID; create if missing (hidden).
+  let note = document.getElementById("location-note-input");
+  if (!note) {
+    note = document.createElement("input");
+    note.type = "hidden";
+    note.id = "location-note-input";
+    document.body.appendChild(note);
+  }
+  let manual = document.getElementById("manual-coordinate-input");
+  if (!manual) {
+    manual = document.createElement("input");
+    manual.type = "hidden";
+    manual.id = "manual-coordinate-input";
+    document.body.appendChild(manual);
+  }
+  let acc = document.getElementById("manual-accuracy-input");
+  if (!acc) {
+    acc = document.createElement("input");
+    acc.type = "hidden";
+    acc.id = "manual-accuracy-input";
+    document.body.appendChild(acc);
+  }
+  return { note, manual, acc };
+}
+
+/* btnRecord?.addEventListener("click", async () => {
+  if (typeof captureCurrentLocation !== "function") {
+    alert("App update needed. Please hard-refresh to load the latest files.");
+    return;
+  }
+  const { note } = ensureHiddenInputs();
+  const entered = window.prompt("Add a note for this position (optional):", "") || "";
+  note.value = entered;
+  try {
+    await captureCurrentLocation();
+  } catch (e) {
+    console.error(e);
+  }
+}); */
+
+/* btnEnter?.addEventListener("click", () => {
+  if (typeof saveManualLocation !== "function") {
+    alert("App update needed. Please hard-refresh to load the latest files.");
+    return;
+  }
+  const { note, manual, acc } = ensureHiddenInputs();
+
+  const coords = window.prompt("Enter coordinates (e.g. 47.5609, -122.1436 or 47°33'39.3\"N 122°08'37.8\"W):", "");
+  if (!coords) return;
+  const accuracy = window.prompt("Accuracy in meters (optional):", "") || "";
+  const enteredNote = window.prompt("Note (optional):", "") || "";
+
+  manual.value = coords;
+  acc.value = accuracy;
+  note.value = enteredNote;
+
+  try {
+    saveManualLocation();
+  } catch (e) {
+    console.error(e);
+  }
+}); */
+
+btnImport?.addEventListener("click", () => kmlInput?.click());
+
 // ---------- Wire events ----------
 openMapsBtn?.addEventListener("click", openRouteInMaps);
 toggleLogBtn?.addEventListener("click", toggleLogVisibility);
-
-locationModeInputs.forEach((input) => {
-  if (!(input instanceof HTMLInputElement)) return;
-  input.addEventListener("change", (e) => {
-    const target = e.target;
-    if (!(target instanceof HTMLInputElement)) return;
-    applyLocationMode(target.value);
-    if (target.value === "manual") manualCoordinateInput?.focus();
-  });
-});
-saveManualLocationBtn?.addEventListener("click", saveManualLocation);
-captureLocationBtn?.addEventListener("click", captureCurrentLocation);
 
 openLocationViewBtn?.addEventListener("click", () => showView("location"));
 openTrackViewBtn?.addEventListener("click", () => showView("track"));
@@ -255,6 +310,11 @@ updateBtn?.addEventListener("click", async () => {
     updateBtn.textContent = originalText;
   }
 });
+
+// Track controls
+startBtn?.addEventListener("click", startTracking);
+pauseBtn?.addEventListener("click", pauseTracking);
+finishBtn?.addEventListener("click", finishTracking);
 
 // Pause recording when app hidden (battery-friendly)
 document.addEventListener("visibilitychange", () => {
@@ -333,17 +393,18 @@ if (!isSecure) {
   setStatus("Open this app via HTTPS (or localhost) to enable location tracking.");
 }
 
-// Put this in main.js (anywhere that runs once on startup)
+// Reload when a new SW takes control
 let _reloading = false;
 navigator.serviceWorker?.addEventListener("controllerchange", () => {
   if (_reloading) return;
   _reloading = true;
-  // Optional: only reload when the tab is visible to avoid odd UX
   if (document.visibilityState === "visible") {
     window.location.reload();
   } else {
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") window.location.reload();
-    }, { once: true });
+    document.addEventListener(
+      "visibilitychange",
+      () => { if (document.visibilityState === "visible") window.location.reload(); },
+      { once: true }
+    );
   }
 });

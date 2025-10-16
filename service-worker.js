@@ -6,8 +6,8 @@
 // - Runtime cache for other same-origin GET requests
 // - Supports update flow via postMessage("SKIP_WAITING")
 
-const PRECACHE = "dalitrail-precache-v4";  // bump when asset list changes
-const RUNTIME  = "dalitrail-runtime-v4";
+const PRECACHE = "dalitrail-precache-v5";  // bump when asset list changes
+const RUNTIME  = "dalitrail-runtime-v5";
 
 const PRECACHE_ASSETS = [
   // App shell (precached so first launch can work offline)

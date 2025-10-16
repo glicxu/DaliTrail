@@ -1,197 +1,144 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DaliTrail</title>
-    <link rel="manifest" href="/manifest.webmanifest">
-    <meta name="theme-color" content="#2b7ff6">
-    <link rel="apple-touch-icon" sizes="180x180" href="/assets/icons/icon-180.png">
-    <link rel="apple-touch-icon" sizes="192x192" href="/assets/icons/icon-192.png">
-    <link rel="apple-touch-icon" sizes="512x512" href="/assets/icons/icon-512.png">
-    <link rel="stylesheet" href="assets/style.css">
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>DaliTrail</title>
+  <link rel="manifest" href="/manifest.webmanifest"/>
+  <meta name="theme-color" content="#2b7ff6"/>
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/icons/icon-180.png"/>
+  <link rel="apple-touch-icon" sizes="192x192" href="/assets/icons/icon-192.png"/>
+  <link rel="apple-touch-icon" sizes="512x512" href="/assets/icons/icon-512.png"/>
+  <link rel="stylesheet" href="assets/style.css"/>
 
-    <!-- Preload ESM dependencies for faster startup -->
-    <link rel="modulepreload" href="/assets/js/utils.js">
-    <link rel="modulepreload" href="/assets/js/location.js">
-    <link rel="modulepreload" href="/assets/js/track.js">
-    <link rel="modulepreload" href="/assets/js/walk.js">
-    <link rel="modulepreload" href="/assets/js/kml-import.js">
-    <link rel="modulepreload" href="/assets/js/sketch.js">
+  <!-- Preload ESM deps -->
+  <link rel="modulepreload" href="/assets/js/utils.js"/>
+  <link rel="modulepreload" href="/assets/js/location.js"/>
+  <link rel="modulepreload" href="/assets/js/track.js"/>
+  <link rel="modulepreload" href="/assets/js/walk.js"/>
+  <link rel="modulepreload" href="/assets/js/kml-import.js"/>
+  <link rel="modulepreload" href="/assets/js/sketch-map.js"/>
 </head>
 <body>
-    <main class="app" data-view="home">
-        <header class="app-header">
-            <button class="btn btn-outline back-btn" id="back-btn" hidden>Back</button>
-            <div>
-                <h1>DaliTrail</h1>
-                <p class="subtitle">Track and share your location.</p>
-            </div>
-        </header>
+  <main class="app" data-view="home">
+    <header class="app-header">
+      <button class="btn btn-outline back-btn" id="back-btn" hidden>Back</button>
+      <div>
+        <h1>DaliTrail</h1>
+        <p class="subtitle">Track and share your location.</p>
+      </div>
+    </header>
 
-        <section class="view home-view" data-view="home">
-            <p class="intro">
-                Pick how you want to use DaliTrail today.
-            </p>
-            <div class="home-actions">
-                <button class="btn btn-primary" id="open-location-view-btn">Location</button>
-                <button class="btn btn-primary" id="open-track-view-btn">Track</button>
-            </div>
-            <button class="icon-btn about-btn" id="open-about-view-btn" aria-label="About DaliTrail">
-                <span class="ellipsis-icon" aria-hidden="true">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </span>
-            </button>
+    <section class="view home-view" data-view="home">
+      <p class="intro">Pick how you want to use DaliTrail today.</p>
+      <div class="home-actions">
+        <button class="btn btn-primary" id="open-location-view-btn">Location</button>
+        <button class="btn btn-primary" id="open-track-view-btn">Track</button>
+      </div>
+      <button class="icon-btn about-btn" id="open-about-view-btn" aria-label="About DaliTrail">
+        <span class="ellipsis-icon" aria-hidden="true"><span></span><span></span><span></span></span>
+      </button>
+    </section>
+
+    <section class="view about-view" data-view="about" hidden>
+      <h2>About</h2>
+      <p class="section-copy">Manage the app on your device and keep it up to date.</p>
+
+      <section class="install" hidden>
+        <h3>Install</h3>
+        <p>Add DaliTrail to your device for a full-screen experience.</p>
+        <div class="install-actions">
+          <p class="install-note status-text" id="install-hint">Install instructions will update based on your device.</p>
+          <button class="btn btn-primary" id="install-btn">Install App</button>
+          <p class="status-text" id="install-status" role="status">Tap Install to add DaliTrail. We’ll guide you if anything else is needed.</p>
+        </div>
+      </section>
+
+      <section class="update" id="update-section" hidden>
+        <h3>Update</h3>
+        <p>Download the latest improvements without leaving the app.</p>
+        <button class="btn btn-outline" id="update-btn">Check for Updates</button>
+      </section>
+
+      <section class="log" hidden>
+        <h3>Activity Log</h3>
+        <ul id="log"></ul>
+      </section>
+
+      <section class="log-toggle">
+        <button class="btn btn-outline" id="toggle-log-btn" aria-expanded="false">Show Log</button>
+      </section>
+    </section>
+
+    <section class="view location-view" data-view="location" hidden>
+  
+      <!-- Status line -->
+      <p id="location-status" class="status-text">No locations saved yet.</p>
+
+      <!-- Latest + Sun/Moon -->
+      <section class="latest-location">
+        <h3>Latest Location</h3>
+        <div id="latest-location-card" class="location-card empty" aria-live="polite">
+          <p class="status-text">No locations saved yet.</p>
+        </div>
+
+        <section class="sun-card" id="sun-card" hidden>
+          <h3>Sun</h3>
+          <p><strong>Sunrise:</strong> <span id="sunrise-text">—</span></p>
+          <p><strong>Sunset:</strong> <span id="sunset-text">—</span></p>
         </section>
 
-        <section class="view about-view" data-view="about" hidden>
-            <h2>About</h2>
-            <p class="section-copy">
-                Manage the app on your device and keep it up to date.
-            </p>
-            <section class="install" hidden>
-                <h3>Install</h3>
-                <p>Add DaliTrail to your device for a full-screen experience.</p>
-                <div class="install-actions">
-                    <p class="install-note status-text" id="install-hint">Install instructions will update based on your device.</p>
-                    <button class="btn btn-primary" id="install-btn">Install App</button>
-                    <p class="status-text" id="install-status" role="status">Tap Install to add DaliTrail. We’ll guide you if anything else is needed.</p>
-                </div>
-            </section>
-
-            <section class="update" id="update-section" hidden>
-                <h3>Update</h3>
-                <p>Download the latest improvements without leaving the app.</p>
-                <button class="btn btn-outline" id="update-btn">Check for Updates</button>
-            </section>
-
-            <section class="log" hidden>
-                <h3>Activity Log</h3>
-                <ul id="log"></ul>
-            </section>
-
-            <section class="log-toggle">
-                <button class="btn btn-outline" id="toggle-log-btn" aria-expanded="false">Show Log</button>
-            </section>
+        <section id="moon-card" class="sun-card" hidden>
+          <h3>Moon</h3>
+          <p>Moonrise: <strong id="moonrise-text">—</strong></p>
+          <p>Moonset:  <strong id="moonset-text">—</strong></p>
+          <p>Phase:    <strong id="moonphase-text">—</strong></p>
         </section>
+      </section>
 
-        <section class="view location-view" data-view="location" hidden>
-            <h2>Location</h2>
-            <p class="section-copy">
-                Capture single GPS points with notes and share them later.
-            </p>
+      <button class="btn btn-outline" id="open-location-history-btn" disabled>Previous Locations</button>
+    </section>
 
-            <fieldset class="location-mode" aria-labelledby="location-mode-label">
-                <legend id="location-mode-label" class="field-label">How do you want to capture coordinates?</legend>
-                <label class="mode-option">
-                    <input type="radio" name="location-mode" value="auto" id="location-mode-auto" checked>
-                    <span>Read automatically</span>
-                </label>
-                <label class="mode-option">
-                    <input type="radio" name="location-mode" value="manual" id="location-mode-manual">
-                    <span>Enter manually</span>
-                </label>
-                <!-- Import KML on the Location page -->
-                <label for="kmlFileInput" class="btn btn-outline" id="import-kml-btn">Import KML</label>
-                <input id="kmlFileInput" type="file" accept=".kml,application/vnd.google-earth.kml+xml" hidden>
-            </fieldset>
+    <section class="view location-history-view" data-view="location-history" hidden>
+      <h2>Saved Locations</h2>
+      <p class="section-copy">Select the points you want to share or view on a map.</p>
 
-            <div class="location-actions">
-                <label class="field-label" for="location-note-input">Notes (optional)</label>
-                <textarea id="location-note-input" rows="2" placeholder="Example: Campsite near the creek"></textarea>
-                <div class="location-mode-view" data-mode="auto">
-                    <button class="btn btn-primary" id="capture-location-btn">Save Current Location</button>
-                </div>
-                <div class="location-mode-view" data-mode="manual" hidden>
-                    <div class="manual-fields">
-                        <label class="field-label" for="manual-coordinate-input">Coordinates</label>
-                        <input
-                            type="text"
-                            id="manual-coordinate-input"
-                            placeholder='Examples: 47.5609, -122.1436 or 47°33&#039;39.3&quot;N 122°08&#039;37.8&quot;W'
-                            inputmode="text"
-                        >
-                        <label class="field-label" for="manual-accuracy-input">Accuracy (meters, optional)</label>
-                        <input type="number" id="manual-accuracy-input" placeholder="e.g. 10" min="0" step="any">
-                    </div>
-                    <button class="btn btn-primary" id="save-manual-location-btn">Save Manual Coordinates</button>
-                </div>
-                <p id="location-status" class="status-text">No locations saved yet.</p>
-            </div>
+      <ul id="locations-list"></ul>
+      <p id="location-history-status" class="status-text">No saved locations yet.</p>
 
-            <section class="latest-location">
-                <h3>Latest Location</h3>
-                <div id="latest-location-card" class="location-card empty" aria-live="polite">
-                    <p class="status-text">No locations saved yet.</p>
-                </div>
+      <div class="history-actions">
+        <button class="btn btn-primary" id="history-view-btn" disabled>View on Map</button>
+        <button class="btn btn-outline" id="history-share-btn" disabled>Share</button>
+        <button class="btn btn-danger" id="history-delete-btn" disabled>Delete</button>
+        <!-- Walk / Sketch are injected by JS -->
+      </div>
+    </section>
 
-                <!-- NEW: optional Sun card (auto-filled by JS if present) -->
-                <section class="sun-card" id="sun-card" hidden>
-                    <h3>Sun</h3>
-                    <p><strong>Sunrise:</strong> <span id="sunrise-text">—</span></p>
-                    <p><strong>Sunset:</strong> <span id="sunset-text">—</span></p>
-                </section>
+    <section class="view track-view" data-view="track" hidden>
+      <div class="controls">
+        <button class="btn btn-primary" id="start-btn">Start</button>
+        <button class="btn btn-neutral" id="pause-btn" disabled>Pause</button>
+        <button class="btn btn-danger" id="finish-btn" disabled>Finish</button>
+      </div>
 
-                <!-- Optional moon card in the Location view -->
-                <section id="moon-card" class="sun-card" hidden>
-                    <h3>Moon</h3>
-                    <p>Moonrise: <strong id="moonrise-text">—</strong></p>
-                    <p>Moonset:  <strong id="moonset-text">—</strong></p>
-                    <p>Phase:    <strong id="moonphase-text">—</strong></p> <!-- NEW -->
-                </section>
+      <section class="status">
+        <h2>Status</h2>
+        <p id="status-text">Ready when you are.</p>
+        <p><strong>Points recorded:</strong> <span id="points-count">0</span></p>
+        <p><strong>Total distance:</strong> <span id="distance">0 m</span></p>
+        <p><strong>Elevation gain:</strong> <span id="elevation-gain">0 m</span></p>
+        <p><strong>Elevation loss:</strong> <span id="elevation-loss">0 m</span></p>
+        <p><strong>Average speed:</strong> <span id="avg-speed">0 km/h</span></p>
+        <p><strong>Elapsed time:</strong> <span id="elapsed">00:00:00</span></p>
+      </section>
 
-            </section>
+      <section class="export" hidden>
+        <h2>Export</h2>
+        <button class="btn btn-primary" id="open-maps-btn">Open in Maps</button>
+      </section>
+    </section>
+  </main>
 
-            <button class="btn btn-outline" id="open-location-history-btn" disabled>Previous Locations</button>
-        </section>
-
-        <section class="view location-history-view" data-view="location-history" hidden>
-            <h2>Saved Locations</h2>
-            <p class="section-copy">
-                Select the points you want to share or view on a map.
-            </p>
-
-            <!-- (Import controls moved to Location page) -->
-
-            <ul id="locations-list"></ul>
-            <p id="location-history-status" class="status-text">No saved locations yet.</p>
-
-            <div class="history-actions">
-                <button class="btn btn-primary" id="history-view-btn" disabled>View on Map</button>
-                <button class="btn btn-outline" id="history-share-btn" disabled>Share</button>
-                <button class="btn btn-danger" id="history-delete-btn" disabled>Delete</button>
-                <!-- "Walk to this location" and "Sketch Map" buttons are injected by JS as needed -->
-            </div>
-        </section>
-
-        <section class="view track-view" data-view="track" hidden>
-            <div class="controls">
-                <button class="btn btn-primary" id="start-btn">Start</button>
-                <button class="btn btn-neutral" id="pause-btn" disabled>Pause</button>
-                <button class="btn btn-danger" id="finish-btn" disabled>Finish</button>
-            </div>
-
-            <section class="status">
-                <h2>Status</h2>
-                <p id="status-text">Ready when you are.</p>
-                <p><strong>Points recorded:</strong> <span id="points-count">0</span></p>
-                <p><strong>Total distance:</strong> <span id="distance">0 m</span></p>
-                <p><strong>Elevation gain:</strong> <span id="elevation-gain">0 m</span></p>
-                <p><strong>Elevation loss:</strong> <span id="elevation-loss">0 m</span></p>
-                <p><strong>Average speed:</strong> <span id="avg-speed">0 km/h</span></p>
-                <p><strong>Elapsed time:</strong> <span id="elapsed">00:00:00</span></p>
-            </section>
-
-            <section class="export" hidden>
-                <h2>Export</h2>
-                <button class="btn btn-primary" id="open-maps-btn">Open in Maps</button>
-            </section>
-        </section>
-    </main>
-
-    <!-- Load ES modules entry -->
-    <script type="module" src="/assets/js/main.js"></script>
+  <script type="module" src="/assets/js/main.js"></script>
 </body>
 </html>
