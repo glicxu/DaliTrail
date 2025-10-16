@@ -88,7 +88,7 @@ export function startWalkingTo(entry) {
   overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(); });
 
   btnSketch.addEventListener("click", async () => {
-    const { openSketchMap } = await import("/assets/js/sketch-map.js");
+    const { openSketchMap } = await import("/assets/js/sketch.js");
     openSketchMap({
       target: { lat: entry.lat, lng: entry.lng, note: entry.note || "Target" },
       liveTrack: true,          // start its own GPS watch & track

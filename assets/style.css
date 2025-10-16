@@ -510,3 +510,42 @@ textarea::placeholder {
         justify-content: flex-start;
     }
 }
+
+/* Compact app header: visually collapse it */
+.app-header {
+  height: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  overflow: visible; /* so the back button can float */
+}
+
+/* Float the back button over the content */
+.app-header .back-btn {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 10;
+}
+
+/* Hide title/subtitle in the collapsed header */
+.app-header h1,
+.app-header .subtitle {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Back arrow button styling */
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;            /* we’re centering the icon */
+}
+.back-btn svg { display:block; }

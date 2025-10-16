@@ -491,7 +491,7 @@ document.addEventListener("click", async (e) => {
     if (!selected.length) return;
     const points = selected.map((e) => ({ lat: e.lat, lng: e.lng, note: e.note || "", timestamp: e.timestamp }));
     try {
-      const mod = await import("/assets/js/sketch-map.js");
+      const mod = await import("/assets/js/sketch.js");
       const open = mod.openSketchMap || mod.openSketchMapOverlay || mod.default;
       if (!open) throw new Error("Sketch map module missing an export.");
       try { open({ points, liveTrack: true, follow: false }); }
