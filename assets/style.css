@@ -539,13 +539,33 @@ textarea::placeholder {
   white-space: nowrap;
 }
 
-/* Back arrow button styling */
+/* Back arrow button styling (your existing rules) */
 .back-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 36px;
   height: 36px;
-  padding: 0;            /* we’re centering the icon */
+  padding: 0; /* we’re centering the icon */
 }
-.back-btn svg { display:block; }
+
+/* Add space under the back button and anchor it neatly */
+.app-header {
+  position: relative;         /* so the button can be absolutely positioned */
+  padding-top: 56px;          /* <-- creates vertical space under the arrow */
+}
+
+/* Place the arrow in the top-left of the header */
+.app-header .back-btn {
+  position: absolute;
+  top: 12px;                  /* tweak to taste (8–16px) */
+  left: 12px;
+  z-index: 10;
+}
+
+/* (Optional) Make the icon-only button round and crisp */
+.back-btn {
+  border-radius: 999px;
+}
+.back-btn svg { display: block; }
+
