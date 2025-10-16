@@ -898,32 +898,3 @@ if (document.readyState === "loading") {
 } else {
   safeInit();
 }
-
-/* // ---- Compatibility shim for legacy UI ----
-export const applyLocationMode = (mode) => {
-  // Keep legacy behavior if those elements still exist
-  const next = mode === "manual" ? "manual" : "auto";
-
-  // Legacy radio buttons
-  document.querySelectorAll('input[name="location-mode"]').forEach((input) => {
-    if (!(input instanceof HTMLInputElement)) return;
-    input.checked = input.value === next;
-    const option = input.closest(".mode-option");
-    if (option && option instanceof HTMLElement) {
-      option.classList.toggle("active", input.value === next);
-    }
-  });
-
-  // Legacy per-mode panels
-  document.querySelectorAll(".location-mode-view").forEach((view) => {
-    if (!(view instanceof HTMLElement)) return;
-    const isActive = view.dataset.mode === next;
-    view.hidden = !isActive;
-    view.setAttribute("aria-hidden", String(!isActive));
-  });
-
-  // Note: in the new UI we use modals (Record position / Enter GPS),
-  // so this function intentionally does not open modals.
-  // It's here so main.js can import it without errors.
-};
-*/

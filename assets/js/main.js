@@ -20,6 +20,9 @@ import {
   hasActiveWatch,
 } from "./track.js";
 
+import "/assets/js/notes.js";
+
+
 // ---------- DOM ----------
 const appRoot = document.querySelector(".app");
 const backBtn = document.getElementById("back-btn");
@@ -28,9 +31,11 @@ const aboutView = document.querySelector('.about-view[data-view="about"]');
 const locationView = document.querySelector('.location-view[data-view="location"]');
 const locationHistoryView = document.querySelector('.location-history-view[data-view="location-history"]');
 const trackView = document.querySelector('.track-view[data-view="track"]');
+const notesView = document.querySelector('.notes-view[data-view="notes"]');
 
 const openLocationViewBtn = document.getElementById("open-location-view-btn");
 const openTrackViewBtn = document.getElementById("open-track-view-btn");
+const openNotesViewBtn = document.getElementById("open-notes-view-btn");
 const openAboutViewBtn = document.getElementById("open-about-view-btn");
 
 const installSection = document.querySelector(".about-view .install");
@@ -74,7 +79,7 @@ let installPromptWaitTimeoutId = null;
 let swRegistration = null;
 
 // ---------- Views ----------
-const VIEWS = { home: homeView, about: aboutView, location: locationView, "location-history": locationHistoryView, track: trackView };
+const VIEWS = { home: homeView, about: aboutView, location: locationView, "location-history": locationHistoryView, track: trackView, notes: notesView };
 
 const showView = (view) => {
   if (!(view in VIEWS)) throw new Error(`Unknown view: ${view}`);
@@ -216,43 +221,6 @@ function ensureHiddenInputs() {
   return { note, manual, acc };
 }
 
-/* btnRecord?.addEventListener("click", async () => {
-  if (typeof captureCurrentLocation !== "function") {
-    alert("App update needed. Please hard-refresh to load the latest files.");
-    return;
-  }
-  const { note } = ensureHiddenInputs();
-  const entered = window.prompt("Add a note for this position (optional):", "") || "";
-  note.value = entered;
-  try {
-    await captureCurrentLocation();
-  } catch (e) {
-    console.error(e);
-  }
-}); */
-
-/* btnEnter?.addEventListener("click", () => {
-  if (typeof saveManualLocation !== "function") {
-    alert("App update needed. Please hard-refresh to load the latest files.");
-    return;
-  }
-  const { note, manual, acc } = ensureHiddenInputs();
-
-  const coords = window.prompt("Enter coordinates (e.g. 47.5609, -122.1436 or 47°33'39.3\"N 122°08'37.8\"W):", "");
-  if (!coords) return;
-  const accuracy = window.prompt("Accuracy in meters (optional):", "") || "";
-  const enteredNote = window.prompt("Note (optional):", "") || "";
-
-  manual.value = coords;
-  acc.value = accuracy;
-  note.value = enteredNote;
-
-  try {
-    saveManualLocation();
-  } catch (e) {
-    console.error(e);
-  }
-}); */
 
 btnImport?.addEventListener("click", () => kmlInput?.click());
 
@@ -262,7 +230,9 @@ toggleLogBtn?.addEventListener("click", toggleLogVisibility);
 
 openLocationViewBtn?.addEventListener("click", () => showView("location"));
 openTrackViewBtn?.addEventListener("click", () => showView("track"));
+openNotesViewBtn?.addEventListener("click", () => showView("notes"));
 openAboutViewBtn?.addEventListener("click", () => showView("about"));
+
 
 openLocationHistoryBtn?.addEventListener("click", () => {
   renderLocationHistory();

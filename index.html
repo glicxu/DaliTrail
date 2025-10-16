@@ -17,7 +17,9 @@
   <link rel="modulepreload" href="/assets/js/track.js"/>
   <link rel="modulepreload" href="/assets/js/walk.js"/>
   <link rel="modulepreload" href="/assets/js/kml-import.js"/>
-  <link rel="modulepreload" href="/assets/js/sketch-map.js"/>
+  <link rel="modulepreload" href="/assets/js/sketch.js"/>,
+  <link rel="modulepreload" href="/assets/js/main.js"/>,
+  <link rel="modulepreload" href="/assets/js/notes.js"/>,
 </head>
 <body>
   <main class="app" data-view="home">
@@ -34,6 +36,7 @@
       <div class="home-actions">
         <button class="btn btn-primary" id="open-location-view-btn">Location</button>
         <button class="btn btn-primary" id="open-track-view-btn">Track</button>
+        <button class="btn btn-primary" id="open-notes-view-btn">Note</button>
       </div>
       <button class="icon-btn about-btn" id="open-about-view-btn" aria-label="About DaliTrail">
         <span class="ellipsis-icon" aria-hidden="true"><span></span><span></span><span></span></span>
@@ -137,7 +140,22 @@
         <button class="btn btn-primary" id="open-maps-btn">Open in Maps</button>
       </section>
     </section>
-  </main>
+ 
+    <section class="view notes-view" data-view="notes" hidden>
+      <h2>Notes</h2>
+      <p class="section-copy">Quick notes for your trip—offline friendly.</p>
+
+      <div class="notes-editor">
+        <label for="note-input" class="visually-hidden">New note</label>
+        <textarea id="note-input" placeholder="Type a quick note…"></textarea>
+        <button class="btn btn-primary" id="add-note-btn">Add</button>
+        </div>
+
+        <ul class="notes-list" id="notes-list"></ul>
+        <p id="notes-status" class="status-text">No notes yet.</p>
+    </section>
+
+ </main>
 
   <script type="module" src="/assets/js/main.js"></script>
 </body>
