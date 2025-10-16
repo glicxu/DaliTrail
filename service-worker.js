@@ -29,6 +29,8 @@ const PRECACHE_ASSETS = [
   "/assets/js/track.js",
   "/assets/js/utils.js",
   "/assets/js/sketch.js",
+  "/assets/js/kml-import.js",
+  "/assets/js/walk.js",
 ];
 
 self.addEventListener("install", (event) => {

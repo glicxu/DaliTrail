@@ -8,9 +8,12 @@ import {
   round6,
   dedupeByKey,
   parseIsoTime,
-  parseKmlCoordinateList as parseCoordinateList,
-  sampleLineVertices,
-  distanceAndDirection,     // used for walk-to overlay
+  parseKmlCoordinateList as parseCoordinateList, // kept for compatibility (used in kml-import module)
+  sampleLineVertices,                              // kept for compatibility (used in kml-import module)
+  distanceAndDirection, // used elsewhere; keep export compatibility
+  getSunTimes,          // <-- NEW: sunrise / sunset (local-time aware)
+  getMoonTimes,         // <-- NEW: moonrise / moonset (local-time aware)
+  getMoonPhase,        // <-- NEW: moon phase (0-1)
 } from "/assets/js/utils.js";
 
 const LOCATIONS_KEY = "dalitrail:locations";
@@ -22,10 +25,20 @@ const locationStatusText = document.getElementById("location-status");
 const latestLocationCard = document.getElementById("latest-location-card");
 const openLocationHistoryBtn = document.getElementById("open-location-history-btn");
 const locationsList = document.getElementById("locations-list");
-const locationHistoryStatus = document.getElementById("location-history-status"); // still used by history rendering
+const locationHistoryStatus = document.getElementById("location-history-status");
 const locationNoteInput = document.getElementById("location-note-input");
 const manualCoordinateInput = document.getElementById("manual-coordinate-input");
 const manualAccuracyInput = document.getElementById("manual-accuracy-input");
+
+// Optional Sun/Moon card (if present in HTML)
+const sunCard = document.getElementById("sun-card");
+const sunRiseEl = document.getElementById("sunrise-text");
+const sunSetEl = document.getElementById("sunset-text");
+const moonCard   = document.getElementById("moon-card");
+const moonRiseEl = document.getElementById("moonrise-text");
+const moonSetEl  = document.getElementById("moonset-text");
+const moonPhaseEl= document.getElementById("moonphase-text"); 
+
 
 let isCapturingLocation = false;
 let savedLocations = [];
@@ -35,19 +48,6 @@ let locationMode = "auto";
 // ----- utils (local wrappers) -----
 const haversineDistance = (a, b) => haversineMeters(a, b);
 const sanitizeAltitude = (altitude) => (Number.isFinite(altitude) ? altitude : null);
-
-// Small helper to keep action buttons DRY
-function ensureActionButton(id, className, text, container, insertBefore = null) {
-  let btn = document.getElementById(id);
-  if (!btn && container) {
-    btn = document.createElement("button");
-    btn.id = id;
-    btn.className = className;
-    btn.textContent = text;
-    container.insertBefore(btn, insertBefore || null);
-  }
-  return btn;
-}
 
 // ----- persistence -----
 export const persistSavedLocations = () => {
@@ -76,6 +76,55 @@ export const loadSavedLocations = () => {
   }
 };
 
+// ----- Sun card -----
+function updateSunCardFor(lat, lng, date = new Date()) {
+  if (!sunCard || !sunRiseEl || !sunSetEl) return;
+  const { sunrise, sunset, polar } = getSunTimes(lat, lng, date);
+  const fmt = (d) => (d ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—");
+  sunRiseEl.textContent = fmt(sunrise);
+  sunSetEl.textContent = fmt(sunset);
+  sunCard.hidden = false;
+  if (polar) {
+    sunCard.dataset.polar = "true";
+  } else {
+    delete sunCard.dataset.polar;
+  }
+}
+
+function updateMoonCardFor(lat, lng, date = new Date()) {
+  if (!moonCard || !moonRiseEl || !moonSetEl || !moonPhaseEl) return;
+
+  // Rise/Set
+  const { moonrise, moonset, alwaysUp, alwaysDown } = getMoonTimes(lat, lng, date);
+  const fmt = (d) => (d ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—");
+  moonRiseEl.textContent = fmt(moonrise);
+  moonSetEl.textContent  = fmt(moonset);
+  moonCard.hidden = false;
+
+  if (alwaysUp) moonCard.dataset.always = "up";
+  else if (alwaysDown) moonCard.dataset.always = "down";
+  else delete moonCard.dataset.always;
+
+  // Phase
+  const phase = getMoonPhase(date);
+  const pct = Math.round(phase.fraction * 100);
+  let extra = "";
+  if (phase.isNearNew)  extra = " · near New Moon";
+  if (phase.isNearFull) extra = " · near Full Moon";
+  // If both flags are false, optionally show days to nearest major:
+  if (!extra) {
+    const toFull = phase.daysToFull.toFixed(1);
+    const toNew  = Math.min(phase.ageDays, phase.daysToNew).toFixed(1);
+    // choose whichever is nearer
+    extra = phase.daysToFull < Math.min(phase.ageDays, phase.daysToNew)
+      ? ` · ~${toFull} d to Full`
+      : ` · ~${toNew} d to New`;
+  }
+  moonPhaseEl.textContent = `${phase.phaseName} (${pct}% lit)${extra}`;
+}
+
+
+
 // ----- render -----
 export const renderLatestLocation = () => {
   if (!latestLocationCard) return;
@@ -87,6 +136,8 @@ export const renderLatestLocation = () => {
     delete latestLocationCard.dataset.id;
     locationStatusText && (locationStatusText.textContent = "No locations saved yet.");
     openLocationHistoryBtn && (openLocationHistoryBtn.disabled = true);
+    // Sun card: hide if no data
+    if (sunCard) sunCard.hidden = true;
     return;
   }
 
@@ -121,6 +172,13 @@ export const renderLatestLocation = () => {
 
   locationStatusText && (locationStatusText.textContent = `Saved ${savedLocations.length} location${savedLocations.length === 1 ? "" : "s"}.`);
   openLocationHistoryBtn && (openLocationHistoryBtn.disabled = savedLocations.length === 0);
+
+  // Update Sun card for the latest location
+  updateSunCardFor(latest.lat, latest.lng);
+
+  // Update Moon card for the latest location
+  updateMoonCardFor(latest.lat, latest.lng);
+
 };
 
 export const renderLocationHistory = () => {
@@ -178,23 +236,15 @@ const updateHistoryActions = () => {
   const historyDeleteBtn = document.getElementById("history-delete-btn");
   const actionsRow = document.querySelector(".history-actions");
 
-  // Ensure "Walk to this location"
-  const walkBtn = ensureActionButton(
-    "history-walk-btn",
-    "btn btn-outline",
-    "Walk to this location",
-    actionsRow,
-    historyDeleteBtn || null
-  );
-
-  // Ensure "Sketch Map" (relative drawing, no tiles)
-  const sketchBtn = ensureActionButton(
-    "history-sketch-btn",
-    "btn btn-outline",
-    "Sketch Map",
-    actionsRow,
-    historyDeleteBtn || null
-  );
+  // ensure "Walk to this location" exists
+  let walkBtn = document.getElementById("history-walk-btn");
+  if (!walkBtn && actionsRow) {
+    walkBtn = document.createElement("button");
+    walkBtn.id = "history-walk-btn";
+    walkBtn.className = "btn btn-outline";
+    walkBtn.textContent = "Walk to this location";
+    actionsRow.insertBefore(walkBtn, historyDeleteBtn || null);
+  }
 
   const selCount = selectedLocationIds.size;
   const hasSelection = selCount > 0;
@@ -203,7 +253,6 @@ const updateHistoryActions = () => {
   if (historyShareBtn) historyShareBtn.disabled = !hasSelection;
   if (historyDeleteBtn) historyDeleteBtn.disabled = !hasSelection;
   if (walkBtn) walkBtn.disabled = selCount !== 1;
-  if (sketchBtn) sketchBtn.disabled = !hasSelection; // allow 1+
 };
 
 document.getElementById("locations-list")?.addEventListener("change", (event) => {
@@ -226,28 +275,14 @@ latestLocationCard?.addEventListener("click", (event) => {
   if (btn.dataset.action === "share") void shareLocationEntry(entry);
 });
 
-// Delegated clicks for Walk + Sketch (lazy-load sketch module)
+// Handle "Walk to this location" click (delegated)
 document.addEventListener("click", async (e) => {
   const btn = e.target;
-  if (!(btn instanceof HTMLButtonElement)) return;
-
-  if (btn.id === "history-walk-btn") {
-    const selected = getSelectedLocations();
-    if (selected.length !== 1) return;
-    startWalkingTo(selected[0]);
-  }
-
-  if (btn.id === "history-sketch-btn") {
-    const pts = getSelectedLocations();
-    if (!pts.length) return;
-    try {
-      const { openSketchMapOverlay } = await import("/assets/js/sketch.js");
-      openSketchMapOverlay(pts);
-    } catch (err) {
-      console.error("Failed to load sketch module:", err);
-      alert("Sketch Map module could not be loaded.");
-    }
-  }
+  if (!(btn instanceof HTMLButtonElement) || btn.id !== "history-walk-btn") return;
+  const selected = getSelectedLocations();
+  if (selected.length !== 1) return;
+  const { startWalkingTo } = await import("/assets/js/walk.js");
+  startWalkingTo(selected[0]); // overlay runs in its own module
 });
 
 // ----- geolocation fusion -----
@@ -407,7 +442,7 @@ ${acc}${elev}${note}`;
     const name = `DaliTrail-locations-${new Date().toISOString()}`;
     const placemarks = selected
       .map((e, i) => {
-        const alt = Number.isFinite(e.altitude) ? e.altitude : 0; // numeric for KML
+        const alt = Number.isFinite(e.altitude) ? e.altitude : 0;
         const elevText = formatElevation(e.altitude);
         const acc = Number.isFinite(e.accuracy) ? `Accuracy: +/-${e.accuracy.toFixed(1)} m\n` : "";
         return `
@@ -636,7 +671,7 @@ export const captureCurrentLocation = async () => {
       lat: fused.lat,
       lng: fused.lng,
       accuracy: Number.isFinite(fused.accuracy) ? fused.accuracy : null,
-      altitude: Number.isFinite(fused.altitude) ? fused.altitude : null, // persist elevation
+      altitude: Number.isFinite(fused.altitude) ? fused.altitude : null,
       note,
       timestamp: fused.timestamp,
     };
@@ -646,6 +681,11 @@ export const captureCurrentLocation = async () => {
     renderLocationHistory();
     if (locationNoteInput) locationNoteInput.value = "";
     locationStatusText && (locationStatusText.textContent = `Location saved${entry.accuracy ? ` (~+/-${entry.accuracy.toFixed(1)} m)` : ""}.`);
+
+    // Update Sun card for current fix
+    updateSunCardFor(entry.lat, entry.lng);
+    // Update Moon card for current fix
+    updateMoonCardFor(entry.lat, entry.lng);
   } catch (error) {
     const msg = error && typeof error === "object" && "message" in error ? error.message : String(error);
     locationStatusText && (locationStatusText.textContent = `Unable to capture location: ${msg}`);
@@ -655,304 +695,29 @@ export const captureCurrentLocation = async () => {
   }
 };
 
-// ----- KML import -----
-// Now wired for the Location page (status messages use locationStatusText).
-(function setupKmlImport() {
-  const input = document.getElementById("kmlFileInput"); // input/button is in the Location view
+// ----- KML import (refactored to its own module) -----
+(function initKmlImport() {
+  const input = document.getElementById("kmlFileInput");
   if (!input) return;
 
-  input.addEventListener("change", async (e) => {
-    const file = e.target?.files?.[0];
-    if (!file) return;
-    try {
-      locationStatusText && (locationStatusText.textContent = "Importing KML...");
-      const kmlText = await file.text();
-      const parsed = parseKmlToEntries(kmlText);
-      if (!parsed.length) {
-        locationStatusText && (locationStatusText.textContent = "No importable coordinates found in KML.");
-        return;
-      }
-      const before = savedLocations.length;
-      mergeImportedLocations(parsed);
-      persistSavedLocations();
-      renderLatestLocation();
-      renderLocationHistory();
-      const added = savedLocations.length - before;
-      locationStatusText && (locationStatusText.textContent = `Imported ${parsed.length} from KML (${added} new).`);
-      alert(`Parsed ${parsed.length} points. Added ${added} new locations.`);
-    } catch (err) {
-      console.error(err);
-      const msg = err && typeof err === "object" && "message" in err ? err.message : String(err);
-      locationStatusText && (locationStatusText.textContent = `Failed to import KML: ${msg}`);
-      alert(`Failed to import KML: ${msg}`);
-    } finally {
-      e.target.value = ""; // allow re-importing the same file
-    }
-  });
+  import("/assets/js/kml-import.js").then(({ attachKmlImport }) => {
+    attachKmlImport({
+      input,
+      getSaved: () => savedLocations.slice(),
+      mergeAndSave: (entries) => {
+        // dedupe vs existing
+        const key = (e) => `${round6(e.lat)},${round6(e.lng)}@${Math.floor(e.timestamp / 1000)}`;
+        const existing = new Set(savedLocations.map(key));
+        const fresh = entries.filter((e) => !existing.has(key(e)));
+        if (!fresh.length) return { added: 0, total: savedLocations.length };
 
-  function parseKmlToEntries(kmlText) {
-    const dom = new DOMParser().parseFromString(kmlText, "application/xml");
-    if (dom.querySelector("parsererror")) throw new Error("Invalid KML format.");
-
-    const q = (sel, root = dom) => root.querySelector(sel);
-    const qa = (sel, root = dom) => Array.from(root.querySelectorAll(sel));
-    const txt = (root, selectors) => {
-      for (const s of selectors) {
-        const el = q(s, root);
-        if (el && el.textContent) return el.textContent.trim();
-      }
-      return undefined;
-    };
-
-    const entries = [];
-
-    // Iterate all Placemarks
-    qa("Placemark").forEach((pm) => {
-      const name = txt(pm, ["name"]);
-      const desc = txt(pm, ["description"]);
-      const when = txt(pm, ["TimeStamp > when", "TimeSpan > begin"]);
-      const timestamp = parseIsoTime(when) ?? Date.now();
-
-      // Point
-      const coordRaw = txt(pm, ["Point > coordinates"]);
-      if (coordRaw) {
-        const [lng, lat, alt] = coordRaw.split(",").map((s) => Number(s.trim()));
-        if (Number.isFinite(lat) && Number.isFinite(lng)) {
-          entries.push(mkEntry({ lat, lng, alt, name, desc, timestamp, source: "Point" }));
-        }
-      }
-
-      // LineString (sampled)
-      const lineRaw = txt(pm, ["LineString > coordinates"]);
-      if (lineRaw) {
-        const linePts = parseCoordinateList(lineRaw);
-        const picks = sampleLineVertices(linePts);
-        picks.forEach((p, i) => {
-          entries.push(mkEntry({
-            lat: p.lat, lng: p.lng, alt: p.alt,
-            name: name ? `${name} [${i + 1}/${picks.length}]` : "Line vertex",
-            desc, timestamp, source: "LineString"
-          }));
-        });
-      }
-
-      // gx:Track
-      const track = q("gx\\:Track, Track", pm);
-      if (track) {
-        const whens = qa("when", track).map((w) => w.textContent.trim());
-        const coords = qa("gx\\:coord, coord", track).map((c) => c.textContent.trim().split(/\s+/).map(Number)); // lon lat alt
-        const n = Math.min(whens.length, coords.length);
-        for (let i = 0; i < n; i++) {
-          const [lng, lat, alt] = coords[i];
-          const t = parseIsoTime(whens[i]) ?? timestamp;
-          if (Number.isFinite(lat) && Number.isFinite(lng)) {
-            entries.push(mkEntry({
-              lat, lng, alt, name: name ? `${name} (${i + 1}/${n})` : "Track point",
-              desc, timestamp: t, source: "gx:Track"
-            }));
-          }
-        }
-      }
+        savedLocations = [...fresh, ...savedLocations].sort((a, b) => b.timestamp - a.timestamp);
+        persistSavedLocations();
+        renderLatestLocation();
+        renderLocationHistory();
+        return { added: fresh.length, total: savedLocations.length };
+      },
+      onStatus: (msg) => { locationStatusText && (locationStatusText.textContent = msg); },
     });
-
-    // Deduplicate by rounded lat/lng + timestamp second
-    return dedupeByKey(entries, (e) => `${round6(e.lat)},${round6(e.lng)}@${Math.floor(e.timestamp / 1000)}`);
-  }
-
-  function mkEntry({ lat, lng, alt, name, desc, timestamp, source }) {
-    const altitude = Number.isFinite(alt) ? alt : null;
-    const baseNote = [name, desc].filter(Boolean).join(" — ").trim();
-    const note = baseNote || (source ? `Imported (${source})` : "Imported");
-    const id = `${timestamp}-${round6(lat)}-${round6(lng)}-${Math.random().toString(16).slice(2, 6)}`;
-    return {
-      id, lat, lng,
-      accuracy: null,
-      altitude,
-      note,
-      timestamp
-    };
-  }
-
-  function mergeImportedLocations(entries) {
-    // Avoid duplicates vs existing savedLocations using same rounded key
-    const existingKeys = new Set(
-      savedLocations.map((e) => `${round6(e.lat)},${round6(e.lng)}@${Math.floor(e.timestamp / 1000)}`)
-    );
-    const fresh = entries.filter((e) => !existingKeys.has(`${round6(e.lat)},${round6(e.lng)}@${Math.floor(e.timestamp / 1000)}`));
-    if (!fresh.length) return;
-
-    // Merge and sort by timestamp desc
-    savedLocations = [...fresh, ...savedLocations].sort((a, b) => b.timestamp - a.timestamp);
-  }
+  });
 })();
-
-// ----- Walk-to overlay (live distance & direction) -----
-function startWalkingTo(entry) {
-  if (!navigator.geolocation) {
-    alert("Geolocation is not supported on this device.");
-    return;
-  }
-  if (!isSecure) {
-    alert("Enable HTTPS (or use localhost) to access your location.");
-    return;
-  }
-
-  // Build overlay
-  const overlay = document.createElement("div");
-  overlay.className = "walk-overlay";
-  overlay.innerHTML = `
-  <div class="walk-panel" role="dialog" aria-modal="true" aria-label="Walk to this location">
-    <header class="walk-header">
-      <h2>Walk to this location</h2>
-      <button class="btn btn-outline walk-close" aria-label="Close">Close</button>
-    </header>
-    <div class="walk-body">
-      <p class="walk-target">Target:
-        <span class="mono">${entry.lat.toFixed(6)}, ${entry.lng.toFixed(6)}</span>
-        ${entry.note ? ` · ${entry.note.replace(/</g,"&lt;")}` : ""}
-      </p>
-      <div class="walk-stats">
-        <div><span class="walk-label">Distance</span> <span id="walk-distance">—</span></div>
-        <div><span class="walk-label">Direction</span> <span id="walk-bearing">—</span></div>
-        <div><span class="walk-label">GPS accuracy</span> <span id="walk-acc">—</span></div>
-        <div><span class="walk-label">ETA (walk)</span> <span id="walk-eta">—</span></div>
-      </div>
-
-      <p class="walk-note" id="walk-note">
-        Note: Distance and direction shown are straight-line (“as the crow flies”).
-        Use roads, trails, and local guidance to navigate safely.
-      </p>
-
-      <div class="walk-arrow" aria-hidden="true">➤</div>
-      <p class="status-text" id="walk-status">Getting your position…</p>
-      </div>
-    </div>
-  `;
-
-  // Minimal scoped styles (high contrast)
-  const style = document.createElement("style");
-  style.textContent = `
-  .walk-overlay{
-    position:fixed;inset:0;z-index:9999;
-    background:rgba(0,0,0,.55);
-    backdrop-filter:saturate(110%) blur(2px);
-    display:flex;align-items:center;justify-content:center;
-  }
-  .walk-panel{
-    background:#ffffff;
-    color:#111827;
-    max-width:560px;width:min(94%, 560px);
-    border-radius:16px;
-    box-shadow:0 18px 50px rgba(0,0,0,.35);
-    padding:1rem 1rem 1.25rem;
-    border:1px solid rgba(0,0,0,.08);
-  }
-  @media (prefers-color-scheme: dark){
-    .walk-panel{
-      background:#0f172a;
-      color:#f8fafc;
-      border-color:rgba(255,255,255,.12);
-    }
-    .walk-label{color:#cbd5e1;}
-  }
-  .walk-header{
-    display:flex;align-items:center;justify-content:space-between;
-    margin-bottom:.5rem
-  }
-  .walk-header h2{
-    margin:0;font-size:1.15rem;font-weight:700;letter-spacing:.2px
-  }
-  .walk-body{display:grid;gap:.9rem}
-  .walk-target{
-    margin:0;font-size:.98rem;line-height:1.4
-  }
-  .mono{
-    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace
-  }
-  .walk-stats{
-    display:grid;gap:.5rem;
-    font-size:1.05rem;
-    padding:.5rem .75rem;
-    border-radius:12px;
-    background:rgba(0,0,0,.04);
-  }
-  @media (prefers-color-scheme: dark){
-    .walk-stats{background:rgba(255,255,255,.06);}
-  }
-  .walk-label{
-    display:inline-block;min-width:9rem;
-    font-weight:700;
-    color:#6b7280;
-  }
-  #walk-distance{
-    font-weight:800;font-size:1.25rem;
-  }
-  .walk-arrow{
-    font-size:3.25rem;text-align:center;
-    line-height:1;
-    transform:rotate(0deg);
-    transition:transform .15s ease;
-    color:#2563eb;
-    text-shadow:0 2px 8px rgba(0,0,0,.35);
-    user-select:none;
-  }
-  @media (prefers-color-scheme: dark){
-    .walk-arrow{color:#60a5fa;}
-  }
-  .status-text#walk-status{
-    font-size:.95rem;opacity:.9;margin:.2rem 0 0 0
-  }
-  .btn.walk-close{
-    padding:.4rem .7rem;border-radius:10px;
-    border:1px solid currentColor;
-    font-weight:600
-  }
- `;
-  overlay.appendChild(style);
-  document.body.appendChild(overlay);
-
-  const btnClose = overlay.querySelector(".walk-close");
-  const elDist  = overlay.querySelector("#walk-distance");
-  const elBear  = overlay.querySelector("#walk-bearing");
-  const elAcc   = overlay.querySelector("#walk-acc");
-  const elEta   = overlay.querySelector("#walk-eta");
-  const elStat  = overlay.querySelector("#walk-status");
-  const arrow   = overlay.querySelector(".walk-arrow");
-
-  let watchId = null;
-  const WALK_SPEED_MPS = 1.4; // avg walking speed
-
-  const cleanup = () => {
-    if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-    watchId = null;
-    overlay.remove();
-  };
-  btnClose.addEventListener("click", cleanup);
-  overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(); });
-
-  watchId = navigator.geolocation.watchPosition(
-    (pos) => {
-      const cur = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      const { meters, bearingDegrees, compass } = distanceAndDirection(cur, entry);
-
-      elDist.textContent = meters < 995 ? `${Math.round(meters)} m` : `${(meters/1000).toFixed(2)} km`;
-      elBear.textContent = `${bearingDegrees.toFixed(0)}° (${compass})`;
-      elAcc.textContent = Number.isFinite(pos.coords.accuracy) ? `±${pos.coords.accuracy.toFixed(0)} m` : "n/a";
-
-      if (meters > 3) {
-        const secs = Math.round(meters / WALK_SPEED_MPS);
-        const mm = Math.floor(secs / 60), ss = secs % 60;
-        elEta.textContent = `${mm}m ${ss}s`;
-      } else {
-        elEta.textContent = "Arrived";
-      }
-
-      arrow.style.transform = `rotate(${bearingDegrees}deg)`;
-      elStat.textContent = "Updating…";
-    },
-    (err) => {
-      elStat.textContent = `GPS error: ${err.message || err}`;
-    },
-    { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
-  );
-}
