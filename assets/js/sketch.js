@@ -1,10 +1,15 @@
 // /assets/js/sketch.js
 // Sketch Map: draw selected saved locations relative to each other (no tiles).
-// Includes a "Show My Location" toggle that live-updates the user's current position.
+// Enhancements:
+//  - Optional { target } to highlight a specific destination
+//  - Optional { trackLive: true } to keep a live trail while showing user location
 
-export function openSketchMapOverlay(points) {
-  if (!Array.isArray(points) || points.length === 0) {
-    alert("No points to display.");
+export function openSketchMapOverlay(points, opts = {}) {
+  const target = opts.target || null;           // {lat,lng,note?,timestamp?}
+  const trackLive = Boolean(opts.trackLive);    // keep a live trail of user when locating
+
+  if ((!Array.isArray(points) || points.length === 0) && !target) {
+    alert("No points or target to display.");
     return;
   }
 
@@ -28,7 +33,7 @@ export function openSketchMapOverlay(points) {
         </div>
         <p class="sketch-note">
           This is a schematic, straight-line sketch using your saved coordinates (no real map).
-          When showing your location, it's drawn relative to these points.
+          When showing your location, it's drawn relative to these points${target ? " and your chosen target" : ""}.
         </p>
       </div>
     </div>
@@ -65,10 +70,12 @@ export function openSketchMapOverlay(points) {
   const elStatus = overlay.querySelector("#sketch-status");
 
   // ---------- projection helpers ----------
-  // Use equirectangular approximation relative to map center.
   const deg2rad = (v) => (v * Math.PI) / 180;
 
-  const center = getCenter(points);
+  const baseForCenter = (Array.isArray(points) && points.length > 0) ? points
+                          : target ? [target]
+                          : [];
+  const center = getCenter(baseForCenter);
   const cosLat0 = Math.cos(deg2rad(center.lat));
 
   function llToMeters(p) {
@@ -77,21 +84,22 @@ export function openSketchMapOverlay(points) {
     return { x: dx, y: dy };
   }
 
-  // Fit all points into canvas with margins, keep aspect, return scale + offset
-  function computeViewport(allMeters, width, height, margin=30) {
-    let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
+  // Fit all points into canvas with margins, keep aspect
+  function computeViewport(allMeters, width, height, margin = 30) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const m of allMeters) {
-      if (m.x < minX) minX=m.x; if (m.x > maxX) maxX=m.x;
-      if (m.y < minY) minY=m.y; if (m.y > maxY) maxY=m.y;
+      if (m.x < minX) minX = m.x;
+      if (m.x > maxX) maxX = m.x;
+      if (m.y < minY) minY = m.y;
+      if (m.y > maxY) maxY = m.y;
     }
-    // Avoid zero span
-    if (minX===maxX) { minX-=10; maxX+=10; }
-    if (minY===maxY) { minY-=10; maxY+=10; }
+    if (minX === maxX) { minX -= 10; maxX += 10; }
+    if (minY === maxY) { minY -= 10; maxY += 10; }
 
     const spanX = maxX - minX;
     const spanY = maxY - minY;
-    const sx = (width - margin*2) / spanX;
-    const sy = (height - margin*2) / spanY;
+    const sx = (width - margin * 2) / spanX;
+    const sy = (height - margin * 2) / spanY;
     const scale = Math.min(sx, sy);
     const offsetX = margin - minX * scale;
     const offsetY = height - margin + minY * scale; // invert Y when drawing
@@ -106,25 +114,23 @@ export function openSketchMapOverlay(points) {
   }
 
   function formatScale(spanMeters, px, totalPx) {
-    // spanMeters mapped to totalPx (canvas width). Find a nice round horizontal bar ~120px.
     const metersPerPx = spanMeters / totalPx;
     let targetPx = 120;
     let rawMeters = metersPerPx * targetPx;
-    // round to 1/2/5*10^n
     const pow10 = Math.pow(10, Math.floor(Math.log10(rawMeters)));
     const mant = rawMeters / pow10;
     let nice;
-    if (mant < 1.5) nice = 1*pow10;
-    else if (mant < 3.5) nice = 2*pow10;
-    else if (mant < 7.5) nice = 5*pow10;
-    else nice = 10*pow10;
+    if (mant < 1.5) nice = 1 * pow10;
+    else if (mant < 3.5) nice = 2 * pow10;
+    else if (mant < 7.5) nice = 5 * pow10;
+    else nice = 10 * pow10;
     const barPx = Math.round(nice / metersPerPx);
-    const label = nice >= 1000 ? `${(nice/1000).toFixed(nice>=10000?0:1)} km` : `${Math.round(nice)} m`;
+    const label = nice >= 1000 ? `${(nice / 1000).toFixed(nice >= 10000 ? 0 : 1)} km` : `${Math.round(nice)} m`;
     return { barPx, label };
   }
 
   // ---------- prep data ----------
-  const baseMeters = points.map(llToMeters);
+  const baseMeters = (Array.isArray(points) ? points : []).map(llToMeters);
 
   // ---------- canvas setup ----------
   const ctx = canvas.getContext("2d");
@@ -143,6 +149,8 @@ export function openSketchMapOverlay(points) {
   // ---------- live location (toggle) ----------
   let watchId = null;
   let userPoint = null; // {x,y, acc} in meters
+  const trailMeters = []; // live user track in meters
+  const MAX_TRAIL_POINTS = 2000;
   let vpCache = null;
 
   function startLocate() {
@@ -160,6 +168,11 @@ export function openSketchMapOverlay(points) {
         const m = llToMeters({ lat: latitude, lng: longitude });
         userPoint = { ...m, acc: Number.isFinite(accuracy) ? accuracy : null };
         elStatus.textContent = userPoint.acc ? `GPS ±${userPoint.acc.toFixed(0)} m` : "GPS active";
+
+        if (trackLive) {
+          trailMeters.push({ x: m.x, y: m.y });
+          if (trailMeters.length > MAX_TRAIL_POINTS) trailMeters.shift();
+        }
         redraw();
       },
       (err) => {
@@ -175,6 +188,7 @@ export function openSketchMapOverlay(points) {
       watchId = null;
     }
     userPoint = null;
+    trailMeters.length = 0;
     locateBtn.setAttribute("aria-pressed", "false");
     locateBtn.textContent = "Show My Location";
     elStatus.textContent = "";
@@ -183,21 +197,30 @@ export function openSketchMapOverlay(points) {
 
   locateBtn.addEventListener("click", () => {
     const pressed = locateBtn.getAttribute("aria-pressed") === "true";
-    if (pressed) stopLocate(); else startLocate();
+    if (pressed) stopLocate();
+    else startLocate();
   });
 
   // ---------- draw ----------
   function redraw() {
-    // compute viewport including user point if present (so it's always visible)
-    const all = userPoint ? [...baseMeters, userPoint] : baseMeters;
-    const vp = computeViewport(all, canvas.clientWidth, canvas.clientHeight, 30);
+    // include base points, live user, and optional target in viewport
+    const all = [...baseMeters];
+    if (userPoint) all.push(userPoint);
+    if (target) {
+      const tm = llToMeters({ lat: target.lat, lng: target.lng });
+      all.push(tm);
+    }
+    // if still empty (edge case), fake a tiny box
+    const vp = all.length
+      ? computeViewport(all, canvas.clientWidth, canvas.clientHeight, 30)
+      : { scale: 1, offsetX: canvas.clientWidth / 2, offsetY: canvas.clientHeight / 2, spanX: 100, spanY: 100 };
     vpCache = vp;
 
     // bg
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
     drawGrid(ctx, vp);
 
-    // edges (optional: draw lines connecting in time-order)
+    // Optional: connect saved points
     // drawEdges(ctx, baseMeters, vp);
 
     // saved points
@@ -208,21 +231,27 @@ export function openSketchMapOverlay(points) {
     // labels
     drawLabels(ctx, points, baseMeters, vp);
 
-    // user point on top
-    if (userPoint) {
-      drawUser(ctx, metersToCanvas(userPoint, vp), userPoint.acc, vp);
+    // live trail (if enabled)
+    if (trackLive && trailMeters.length > 1) {
+      const trailPx = trailMeters.map((m) => metersToCanvas(m, vp));
+      drawTrail(ctx, trailPx);
     }
 
-    // scale bar
-    const { barPx, label } = formatScale(vp.spanX, canvas.clientWidth, canvas.clientWidth);
+    // target marker
+    if (target) drawTarget(ctx, target, vp);
+
+    // user point on top
+    if (userPoint) drawUser(ctx, metersToCanvas(userPoint, vp), userPoint.acc, vp);
+
+    // scale bar text
+    const { label } = formatScale(vp.spanX, canvas.clientWidth, canvas.clientWidth);
     elScale.textContent = `Scale: ${label}`;
   }
 
   function drawGrid(ctx, vp) {
     const w = canvas.clientWidth, h = canvas.clientHeight;
     ctx.save();
-    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--sketch-bg") || "transparent";
-    // grid lines every ~100m
+    // grid lines every ~100m (rounded)
     const stepM = chooseGridStep(vp.spanX);
     ctx.strokeStyle = "rgba(0,0,0,.12)";
     if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
@@ -230,7 +259,6 @@ export function openSketchMapOverlay(points) {
     }
     ctx.lineWidth = 1;
 
-    // convert meter grid to pixels by scanning across canvas
     const leftM = (0 - vp.offsetX) / vp.scale;
     const rightM = (w - vp.offsetX) / vp.scale;
     const topM = (vp.offsetY - h) / vp.scale;
@@ -251,8 +279,8 @@ export function openSketchMapOverlay(points) {
   }
 
   function chooseGridStep(spanX) {
-    // spanX is horizontal span in meters; target ~10 grid lines
-    const raw = spanX / 10;
+    // aim ~10 vertical grid lines across width
+    const raw = Math.max(1, spanX / 10);
     const pow10 = Math.pow(10, Math.floor(Math.log10(raw)));
     const mant = raw / pow10;
     if (mant < 1.5) return 1 * pow10;
@@ -293,6 +321,7 @@ export function openSketchMapOverlay(points) {
   }
 
   function drawLabels(ctx, pts, mtrs, vp) {
+    if (!Array.isArray(pts) || pts.length === 0) return;
     ctx.save();
     ctx.fillStyle = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "#cbd5e1" : "#374151";
     ctx.font = "500 11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
@@ -337,15 +366,57 @@ export function openSketchMapOverlay(points) {
     ctx.restore();
   }
 
-  // ---------- center & init ----------
-  function getCenter(pts) {
-    // centroid by lat/lng
-    let sLat = 0, sLng = 0;
-    for (const p of pts) { sLat += p.lat; sLng += p.lng; }
-    return { lat: sLat / pts.length, lng: sLng / pts.length };
+  function drawTrail(ctx, pts) {
+    if (pts.length < 2) return;
+    ctx.save();
+    ctx.strokeStyle = "rgba(37,99,235,.85)"; // blue-ish
+    if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      ctx.strokeStyle = "rgba(96,165,250,.9)"; // lighter blue in dark
+    }
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].cx, pts[0].cy);
+    for (let i = 1; i < pts.length; i++) {
+      ctx.lineTo(pts[i].cx, pts[i].cy);
+    }
+    ctx.stroke();
+    ctx.restore();
   }
 
-  // optional: connecting edges in time order (disabled by default)
+  function drawTarget(ctx, tgt, vp) {
+    const m = llToMeters({ lat: tgt.lat, lng: tgt.lng });
+    const p = metersToCanvas(m, vp);
+
+    ctx.save();
+    // crosshair
+    ctx.strokeStyle = "#ef4444"; // red-500
+    if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      ctx.strokeStyle = "#f87171"; // red-400
+    }
+    ctx.lineWidth = 2;
+    const r = 10;
+    ctx.beginPath();
+    ctx.moveTo(p.cx - r, p.cy); ctx.lineTo(p.cx + r, p.cy);
+    ctx.moveTo(p.cx, p.cy - r); ctx.lineTo(p.cx, p.cy + r);
+    ctx.stroke();
+
+    // dot
+    ctx.beginPath();
+    ctx.arc(p.cx, p.cy, 4, 0, Math.PI * 2);
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.fill();
+
+    // label
+    const label = (tgt.note && tgt.note.trim()) || "Target";
+    ctx.font = "700 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "bottom";
+    ctx.fillStyle = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "#e5e7eb" : "#111827";
+    ctx.fillText(label, p.cx + 10, p.cy - 8);
+    ctx.restore();
+  }
+
+  // Optional: connecting edges in time order
   // function drawEdges(ctx, m, vp) {
   //   if (m.length < 2) return;
   //   ctx.save();
@@ -361,6 +432,12 @@ export function openSketchMapOverlay(points) {
   //   ctx.stroke();
   //   ctx.restore();
   // }
+
+  function getCenter(pts) {
+    let sLat = 0, sLng = 0;
+    for (const p of pts) { sLat += p.lat; sLng += p.lng; }
+    return { lat: sLat / pts.length, lng: sLng / pts.length };
+  }
 
   // ---------- close / cleanup ----------
   function cleanup() {

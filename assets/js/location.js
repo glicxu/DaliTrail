@@ -230,13 +230,14 @@ export const renderLocationHistory = () => {
   updateHistoryActions();
 };
 
+
 const updateHistoryActions = () => {
   const historyViewBtn = document.getElementById("history-view-btn");
   const historyShareBtn = document.getElementById("history-share-btn");
   const historyDeleteBtn = document.getElementById("history-delete-btn");
   const actionsRow = document.querySelector(".history-actions");
 
-  // ensure "Walk to this location" exists
+  // Ensure "Walk to this location" exists (single-select)
   let walkBtn = document.getElementById("history-walk-btn");
   if (!walkBtn && actionsRow) {
     walkBtn = document.createElement("button");
@@ -246,14 +247,31 @@ const updateHistoryActions = () => {
     actionsRow.insertBefore(walkBtn, historyDeleteBtn || null);
   }
 
+  // Ensure "Sketch map" exists (multi-select OK)
+  let sketchBtn = document.getElementById("history-sketch-btn");
+  if (!sketchBtn && actionsRow) {
+    sketchBtn = document.createElement("button");
+    sketchBtn.id = "history-sketch-btn";
+    sketchBtn.className = "btn btn-outline";
+    sketchBtn.textContent = "Sketch map";
+    // Put it before Walk for visibility; adjust to taste
+    actionsRow.insertBefore(sketchBtn, walkBtn || historyDeleteBtn || null);
+  }
+
   const selCount = selectedLocationIds.size;
   const hasSelection = selCount > 0;
 
   if (historyViewBtn) historyViewBtn.disabled = !hasSelection;
   if (historyShareBtn) historyShareBtn.disabled = !hasSelection;
   if (historyDeleteBtn) historyDeleteBtn.disabled = !hasSelection;
+
+  // Enable Walk only for exactly one selection
   if (walkBtn) walkBtn.disabled = selCount !== 1;
+
+  // Enable Sketch for one or more selections
+  if (sketchBtn) sketchBtn.disabled = !hasSelection;
 };
+
 
 document.getElementById("locations-list")?.addEventListener("change", (event) => {
   const target = event.target;
@@ -275,15 +293,51 @@ latestLocationCard?.addEventListener("click", (event) => {
   if (btn.dataset.action === "share") void shareLocationEntry(entry);
 });
 
-// Handle "Walk to this location" click (delegated)
+
+// Existing: Walk (single selection)
 document.addEventListener("click", async (e) => {
   const btn = e.target;
-  if (!(btn instanceof HTMLButtonElement) || btn.id !== "history-walk-btn") return;
-  const selected = getSelectedLocations();
-  if (selected.length !== 1) return;
-  const { startWalkingTo } = await import("/assets/js/walk.js");
-  startWalkingTo(selected[0]); // overlay runs in its own module
+  if (!(btn instanceof HTMLButtonElement)) return;
+
+  if (btn.id === "history-walk-btn") {
+    const selected = getSelectedLocations();
+    if (selected.length !== 1) return;
+    const { startWalkingTo } = await import("/assets/js/walk.js");
+    startWalkingTo(selected[0]);
+  }
+
+  if (btn.id === "history-sketch-btn") {
+    const selected = getSelectedLocations();
+    if (!selected.length) return;
+
+    // Normalize points to the minimal shape used by sketch map
+    const points = selected.map((e) => ({
+      lat: e.lat,
+      lng: e.lng,
+      note: e.note || "",
+      timestamp: e.timestamp
+    }));
+
+    try {
+      // Support either API name (openSketchMap OR openSketchMapOverlay)
+      const mod = await import("/assets/js/sketch-map.js");
+      const open =
+        mod.openSketchMap || mod.openSketchMapOverlay || mod.default;
+      if (!open) throw new Error("Sketch map module missing an export.");
+
+      // Try options-style first, then plain array as fallback
+      try {
+        open({ points, liveTrack: true, follow: false }); // works with our newer file
+      } catch {
+        open(points); // works with older overlay-only signature
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Unable to open sketch map.");
+    }
+  }
 });
+
 
 // ----- geolocation fusion -----
 const fuseLocationSamples = (samples) => {
