@@ -53,6 +53,11 @@ const logInstallEvent = (message) => {
   toggleLogBtn?.classList.add("notify");
 };
 
+const installationWatchers = {
+  promptTimer: null,
+  promptReceived: false,
+};
+
 // NEW Location buttons
 const btnRecord = document.getElementById("btn-record-position");
 const btnEnter = document.getElementById("btn-enter-coords");
@@ -86,6 +91,16 @@ if (installSection) {
       : "Install requires HTTPS or localhost.";
   }
   logInstallEvent("Install section initialized.");
+  logInstallEvent(isSecure ? "Secure origin confirmed." : "Insecure origin detected. Install prompt will be blocked.");
+  if (isIosDevice) logInstallEvent("Running on iOS; use Safari's Add to Home Screen instead of install prompt.");
+  else if (isSecure) {
+    installationWatchers.promptTimer = window.setTimeout(() => {
+      if (!installationWatchers.promptReceived) {
+        logInstallEvent("Still waiting for install prompt event (no beforeinstallprompt yet).");
+      }
+    }, 8000);
+    logInstallEvent("Waiting for service worker registration and install prompt readiness...");
+  }
 }
 
 // ---------- Views ----------
@@ -270,7 +285,10 @@ backBtn?.addEventListener("click", () => {
 installBtn?.addEventListener("click", async () => {
   logInstallEvent("Install button clicked.");
   if (deferredInstallPrompt) return void promptInstall();
-  if (isIosDevice) return alert(getManualInstallInstructions());
+  if (isIosDevice) {
+    logInstallEvent("Install prompt not available on iOS; showing manual instructions.");
+    return alert(getManualInstallInstructions());
+  }
   if (isAndroidDevice || isWindowsDevice) {
     installClickRequested = true;
     installStatusText && (installStatusText.textContent = "Preparing install prompt...");
@@ -307,12 +325,18 @@ updateBtn?.addEventListener("click", async () => {
 
 // PWA: service worker + install prompt
 if ("serviceWorker" in navigator) {
-  const registerServiceWorker = () =>
-    navigator.serviceWorker
+  const registerServiceWorker = () => {
+    logInstallEvent("Registering service worker...");
+    return navigator.serviceWorker
       .register("/service-worker.js", { scope: "/" })
       .then((registration) => {
         logInstallEvent("Service worker registered.");
         swRegistration = registration;
+        if (navigator.serviceWorker.controller) {
+          logInstallEvent("Service worker is controlling this page.");
+        } else {
+          logInstallEvent("Awaiting service worker control (controller not yet set).");
+        }
         installSection?.removeAttribute("hidden");
         if (installBtn) installBtn.disabled = false;
         if (installStatusText) {
@@ -335,6 +359,7 @@ if ("serviceWorker" in navigator) {
           installStatusText.textContent = `Unable to register service worker. ${getManualInstallInstructions()}`;
         }
       });
+  };
 
   if (document.readyState === "complete") {
     registerServiceWorker();
@@ -348,6 +373,11 @@ if ("serviceWorker" in navigator) {
 window.addEventListener("beforeinstallprompt", (event) => {
   event.preventDefault();
   deferredInstallPrompt = event;
+  installationWatchers.promptReceived = true;
+  if (installationWatchers.promptTimer !== null) {
+    window.clearTimeout(installationWatchers.promptTimer);
+    installationWatchers.promptTimer = null;
+  }
   installSection?.removeAttribute("hidden");
   installBtn && (installBtn.disabled = false);
   installStatusText && (installStatusText.textContent = "Ready to install DaliTrail on this device.");
