@@ -285,14 +285,18 @@ updateBtn?.addEventListener("click", async () => {
 
 // PWA: service worker + install prompt
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
+  const registerServiceWorker = () =>
     navigator.serviceWorker
       .register("/service-worker.js", { scope: "/" })
       .then((registration) => {
         swRegistration = registration;
         installSection?.removeAttribute("hidden");
-        installBtn && (installBtn.disabled = false);
-        installStatusText && (installStatusText.textContent = isIosDevice ? getManualInstallInstructions() : "Preparing install prompt...");
+        if (installBtn) installBtn.disabled = false;
+        if (installStatusText) {
+          installStatusText.textContent = isIosDevice
+            ? getManualInstallInstructions()
+            : "Preparing install prompt...";
+        }
         updateInstallHint();
         updateSection?.removeAttribute("hidden");
         if (updateBtn) {
@@ -300,8 +304,19 @@ if ("serviceWorker" in navigator) {
           updateBtn.textContent = "Check for Updates";
         }
       })
-      .catch((error) => console.log("SW registration failed:", error));
-  });
+      .catch((error) => {
+        console.log("SW registration failed:", error);
+        if (installBtn) installBtn.disabled = false;
+        if (installStatusText) {
+          installStatusText.textContent = `Unable to register service worker. ${getManualInstallInstructions()}`;
+        }
+      });
+
+  if (document.readyState === "complete") {
+    registerServiceWorker();
+  } else {
+    window.addEventListener("load", registerServiceWorker, { once: true });
+  }
 }
 
 window.addEventListener("beforeinstallprompt", (event) => {
