@@ -1,4 +1,4 @@
-// /assets/js/sketch.js
+// /assets/js/sketch-map.js
 // Sketch Map: draw selected saved locations relative to each other (no tiles).
 // Enhancements:
 //  - Optional { target } to highlight a specific destination

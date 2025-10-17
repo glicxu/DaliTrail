@@ -28,7 +28,7 @@ const PRECACHE_ASSETS = [
   "/assets/js/location.js",
   "/assets/js/track.js",
   "/assets/js/utils.js",
-  "/assets/js/sketch.js",
+  "/assets/js/sketch-map.js",
   "/assets/js/kml-import.js",
   "/assets/js/walk.js",
 ];

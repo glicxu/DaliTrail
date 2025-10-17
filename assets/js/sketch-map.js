@@ -1,4 +1,4 @@
-// /assets/js/sketch.js
+// /assets/js/sketch-map.js
 import { haversineMeters, distanceAndDirection } from "/assets/js/utils.js";
 
 export function openSketchMap({ target, liveTrack = true, follow = true }) {
