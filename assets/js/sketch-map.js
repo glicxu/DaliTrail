@@ -2,24 +2,22 @@
 // Unified sketch map for DaliTrail: supports both "Navigate to target" and "Plot selected points" modes.
 //
 //  • Navigate mode (walk): openSketchMap({ target, liveTrack=true, follow=true })
-//  • Plot mode (multi):    openSketchMap({ points, follow=false })  OR openSketchMap(pointsArray)
+//  • Plot mode (multi):    openSketchMap({ points })  OR openSketchMap(pointsArray)
 //
-// Exports: default (openSketchMap), openSketchMap, openSketchMapOverlay
-//
-// Dependencies: utils.haversineMeters, utils.distanceAndDirection
+// Exports: named openSketchMap, named openSketchMapOverlay, and default (openSketchMap)
 
 import { haversineMeters, distanceAndDirection } from "/assets/js/utils.js";
 
 // Public API ------------------------------------------------------------------
 
-export default function openSketchMap(input) { return openSketchMapOverlay(input); }
+// ✅ Provide BOTH a named and default export so walk.js can do { openSketchMap }
+export function openSketchMap(input) { return openSketchMapOverlay(input); }
+export default openSketchMap;
 
 export function openSketchMapOverlay(input) {
   const opts = normalizeInput(input);
-
-  // Choose mode
   if (opts.target && Number.isFinite(opts.target.lat) && Number.isFinite(opts.target.lng)) {
-    return openNavigateOverlay(opts); // live "walk to point"
+    return openNavigateOverlay(opts); // live “walk to point”
   }
   return openPlotOverlay(opts);       // multi-point sketch
 }
@@ -83,11 +81,10 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true }) {
   let me = null;         // current {lat,lng,acc?}
   let watchId = null;
 
-  // Projection: local equirectangular relative to a moving origin (centroid of me/target/track)
+  // Projection: local equirectangular relative to centroid of me/target/track
   let origin = target ? { lat: target.lat, lng: target.lng } : null;
 
   const toXY = (pt) => {
-    // meters relative to origin (equirectangular)
     const R = 6371000;
     const dLat = (pt.lat - origin.lat) * Math.PI/180;
     const dLng = (pt.lng - origin.lng) * Math.PI/180;
@@ -97,14 +94,12 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true }) {
   };
 
   const fitView = () => {
-    // Compute extents of path + target (+ me)
     const pts = [];
     if (target) pts.push(target);
     if (me) pts.push(me);
     for (const p of track) pts.push(p);
     if (!pts.length) return { scale: 1, tx: 0, ty: 0 };
 
-    // origin: use the centroid-ish (average) to keep numbers small
     const avg = pts.reduce((a,p)=>({lat:a.lat+p.lat,lng:a.lng+p.lng}),{lat:0,lng:0});
     origin = { lat: avg.lat/pts.length, lng: avg.lng/pts.length };
 
@@ -126,7 +121,7 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true }) {
     ctx.clearRect(0,0,canvas.width,canvas.height);
     const { scale, tx, ty } = fitView();
 
-    const drawPoint = (pt, color, r=6) => {
+    const drawPoint = (pt, color, r=7) => {
       const { x, y } = toXY(pt);
       ctx.beginPath();
       ctx.arc(x*scale+tx, -y*scale+ty, r, 0, Math.PI*2);
@@ -148,22 +143,18 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true }) {
       ctx.stroke();
     };
 
-    // grid (subtle)
+    // subtle grid
     ctx.save();
     ctx.globalAlpha = 0.07;
     ctx.strokeStyle = "#000";
-    const step = 50 * (fitView().scale); // ~50m grid visual spacing
-    for (let x = (fitView().tx%step); x < canvas.width; x += step){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke(); }
-    for (let y = (fitView().ty%step); y < canvas.height; y += step){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
+    const gv = fitView(); // fresh numbers after any change
+    const step = 50 * gv.scale;
+    for (let x = (gv.tx%step); x < canvas.width; x += step){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke(); }
+    for (let y = (gv.ty%step); y < canvas.height; y += step){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
     ctx.restore();
 
-    // path
     drawPath(track);
-
-    // target
     if (target) drawPoint(target, "#f97316", 7);
-
-    // me
     if (me) drawPoint(me, "#2563eb", 7);
   };
 
@@ -178,10 +169,8 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true }) {
     me = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy };
     if (track.length === 0) track.push(me);
     else {
-      // append if moved > 3 m
       const last = track[track.length-1];
       if (haversineMeters(last, me) > 3) track.push(me);
-      // keep track length sane
       if (track.length > 1500) track = track.slice(-1500);
     }
     draw();
@@ -195,6 +184,9 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true }) {
     try { style.remove(); } catch {}
   };
 
+  const btnClose = overlay.querySelector(".sketch-close");
+  const btnFollow = overlay.querySelector(".sketch-toggle-follow");
+  const btnFit = overlay.querySelector(".sketch-fit");
   btnClose.addEventListener("click", cleanup);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(); });
   btnFollow.addEventListener("click", () => {
@@ -204,7 +196,7 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true }) {
   });
   btnFit.addEventListener("click", draw);
 
-  // Initial draw (if only target known yet)
+  // Initial draw
   draw(); updateReadout();
 
   if (liveTrack && navigator.geolocation) {
@@ -218,10 +210,10 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true }) {
   return { close: cleanup };
 }
 
-// ---------- Plot Mode (Multiple points relative with connecting lines) -------
+// ---------- Plot Mode (Multiple points in relative positions) ----------------
 
 function openPlotOverlay(input) {
-  const { points = [], follow = false, labelDistance = true, units = "m" } = input || {};
+  const { points = [], labelDistance = true, units = "m" } = input || {};
 
   const overlay = document.createElement("div");
   overlay.className = "sketchmap-overlay";
@@ -258,17 +250,14 @@ function openPlotOverlay(input) {
   document.body.appendChild(style);
   document.body.appendChild(overlay);
 
-  const panel = overlay.querySelector(".sketchmap-panel");
   const canvas = overlay.querySelector(".sketchmap-canvas");
   const btnClose = overlay.querySelector(".sm-close");
   const btnFit = overlay.querySelector(".sm-fit");
-
-  // Prepare scene
-  const scene = buildPlotScene(points);
-  const cam = { x: 0, y: 0, scale: 1, dpr: 1, padding: 20 };
   const ctx = canvas.getContext("2d");
 
-  // Resize observer
+  const scene = buildPlotScene(points);
+  const cam = { x: 0, y: 0, scale: 1, dpr: 1, padding: 20, _canvas: canvas };
+
   const ro = new ResizeObserver(() => resizeAndDraw());
   ro.observe(canvas);
 
@@ -385,46 +374,42 @@ function openPlotOverlay(input) {
     try { style.remove(); } catch {}
   };
 
+  const btnClose = overlay.querySelector(".sm-close");
+  const btnFit = overlay.querySelector(".sm-fit");
   btnClose.addEventListener("click", close);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
   btnFit.addEventListener("click", resizeAndDraw);
 
-  // initial render
   resizeAndDraw();
-  if (follow) resizeAndDraw();
-
   return { close, fit: resizeAndDraw };
 }
 
 // ---------- Plot helpers -----------------------------------------------------
 
 function buildPlotScene(points) {
-  const pts = (Array.isArray(points) ? points : []).filter(p => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))
+  const pts = (Array.isArray(points) ? points : [])
+    .filter(p => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))
     .map(p => ({ lat:+p.lat, lng:+p.lng, note:p.note||"", timestamp:+p.timestamp||Date.now() }));
 
   const scene = { points: pts, center: { lat: 0, lng: 0 }, metersPerDegX: 0, metersPerDegY: 110540, bounds: null, distances: [] };
 
   if (!pts.length) return scene;
 
-  // center for projection (mean)
   let latSum = 0, lngSum = 0;
   pts.forEach(p => { latSum += p.lat; lngSum += p.lng; });
   scene.center.lat = latSum / pts.length;
   scene.center.lng = lngSum / pts.length;
   scene.metersPerDegX = 111320 * Math.cos(toRad(scene.center.lat));
 
-  // project to local meters
   pts.forEach(p => {
     p._x = (p.lng - scene.center.lng) * scene.metersPerDegX;
-    p._y = -(p.lat - scene.center.lat) * scene.metersPerDegY; // down is positive canvas y
+    p._y = -(p.lat - scene.center.lat) * scene.metersPerDegY; // screen y down
   });
 
-  // bounds
   let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
   pts.forEach(p => { if(p._x<minX)minX=p._x;if(p._x>maxX)maxX=p._x;if(p._y<minY)minY=p._y;if(p._y>maxY)maxY=p._y; });
   scene.bounds = { minX, minY, maxX, maxY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
 
-  // segment distances (meters)
   scene.distances = [];
   for (let i=1; i<pts.length; i++) {
     const a = pts[i-1], b = pts[i];
@@ -438,28 +423,24 @@ function buildPlotScene(points) {
 function fitPlot(cam, scene) {
   if (!scene.bounds) return;
   const pad = cam.padding || 20;
-  const w = canvasCssPx(cam).w - pad*2;
-  const h = canvasCssPx(cam).h - pad*2;
+  const w = (cam._canvas?.width || 800) / (cam.dpr || 1) - pad*2;
+  const h = (cam._canvas?.height || 520) / (cam.dpr || 1) - pad*2;
   const sx = w / scene.bounds.width;
   const sy = h / scene.bounds.height;
   cam.scale = Math.max(0.0001, Math.min(sx, sy));
-  // center
-  const cx = -(scene.bounds.minX + scene.bounds.width/2) * cam.scale + (canvasCssPx(cam).w)/2;
-  const cy = -(scene.bounds.minY + scene.bounds.height/2) * cam.scale + (canvasCssPx(cam).h)/2;
+  const cx = -(scene.bounds.minX + scene.bounds.width/2) * cam.scale + (w + pad*2)/2;
+  const cy = -(scene.bounds.minY + scene.bounds.height/2) * cam.scale + (h + pad*2)/2;
   cam.x = cx;
   cam.y = cy;
 }
 
 function drawPlot(canvas, ctx, cam, scene, { labelDistance = true, units = "m" } = {}) {
   const theme = getTheme();
-  // clear
   ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle = theme.bg; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.restore();
 
-  // world transform
-  ctx.save();
-  ctx.setTransform(cam.dpr * 1, 0, 0, cam.dpr * 1, 0, 0);
+  ctx.save(); ctx.setTransform(cam.dpr, 0, 0, cam.dpr, 0, 0);
 
-  // path lines
+  // path
   ctx.lineWidth = 2;
   ctx.strokeStyle = theme.accent;
   ctx.lineCap = "round"; ctx.lineJoin = "round";
@@ -471,7 +452,7 @@ function drawPlot(canvas, ctx, cam, scene, { labelDistance = true, units = "m" }
   });
   ctx.stroke();
 
-  // points with index labels
+  // points
   const r = 5;
   scene.points.forEach((p, i) => {
     const x = p._x * cam.scale + cam.x;
@@ -484,7 +465,7 @@ function drawPlot(canvas, ctx, cam, scene, { labelDistance = true, units = "m" }
     ctx.fillText(String(i+1), x, y + r + 3);
   });
 
-  // segment distance labels
+  // distance labels
   if (labelDistance && scene.points.length >= 2) {
     ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
     for (let i=1; i<scene.points.length; i++) {
@@ -494,7 +475,6 @@ function drawPlot(canvas, ctx, cam, scene, { labelDistance = true, units = "m" }
       const mx = (ax + bx) / 2, my = (ay + by) / 2;
       const meters = scene.distances[i-1].meters;
       const label = formatDistance(meters, units);
-      // halo
       ctx.save();
       ctx.strokeStyle = theme.bg; ctx.lineWidth = 3; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
       ctx.strokeText(label, mx, my - 6);
@@ -505,8 +485,6 @@ function drawPlot(canvas, ctx, cam, scene, { labelDistance = true, units = "m" }
   }
 
   ctx.restore();
-
-  // border
   ctx.save(); ctx.strokeStyle = theme.border; ctx.lineWidth = 1; ctx.strokeRect(0,0,canvas.width,canvas.height); ctx.restore();
 }
 
@@ -520,10 +498,6 @@ function normalizeInput(input) {
 
 function toRad(d) { return d * Math.PI / 180; }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-function canvasCssPx(cam) {
-  const c = cam.canvas || cam._canvas || document.querySelector(".sketchmap-canvas") || { width: 800, height: 520 };
-  return { w: c.width / (cam.dpr || 1), h: c.height / (cam.dpr || 1) };
-}
 function formatDistance(meters, unitsPref) {
   if (unitsPref === "km" || (unitsPref === "m" && meters >= 1000)) {
     return (meters / 1000).toFixed(meters >= 10_000 ? 0 : 1) + " km";
