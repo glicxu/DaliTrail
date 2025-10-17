@@ -10,15 +10,6 @@ import {
   deleteSelectedLocations,
 } from "./location.js";
 
-import {
-  startTracking,
-  pauseTracking,
-  finishTracking,
-  openRouteInMaps,
-  updateMetrics,
-  restoreTrailState,
-  hasActiveWatch,
-} from "./track.js";
 
 import "/assets/js/notes.js";
 
@@ -30,11 +21,9 @@ const homeView = document.querySelector('.home-view[data-view="home"]');
 const aboutView = document.querySelector('.about-view[data-view="about"]');
 const locationView = document.querySelector('.location-view[data-view="location"]');
 const locationHistoryView = document.querySelector('.location-history-view[data-view="location-history"]');
-const trackView = document.querySelector('.track-view[data-view="track"]');
 const notesView = document.querySelector('.notes-view[data-view="notes"]');
 
 const openLocationViewBtn = document.getElementById("open-location-view-btn");
-const openTrackViewBtn = document.getElementById("open-track-view-btn");
 const openNotesViewBtn = document.getElementById("open-notes-view-btn");
 const openAboutViewBtn = document.getElementById("open-about-view-btn");
 
@@ -62,10 +51,6 @@ const historyViewBtn = document.getElementById("history-view-btn");
 const historyShareBtn = document.getElementById("history-share-btn");
 const historyDeleteBtn = document.getElementById("history-delete-btn");
 
-// Track controls
-const startBtn = document.getElementById("start-btn");
-const pauseBtn = document.getElementById("pause-btn");
-const finishBtn = document.getElementById("finish-btn");
 
 const LAST_VIEW_KEY = "dalitrail:last-view";
 const isIosDevice = typeof navigator !== "undefined" && /iphone|ipad|ipod/i.test(navigator.userAgent || "");
@@ -79,7 +64,7 @@ let installPromptWaitTimeoutId = null;
 let swRegistration = null;
 
 // ---------- Views ----------
-const VIEWS = { home: homeView, about: aboutView, location: locationView, "location-history": locationHistoryView, track: trackView, notes: notesView };
+const VIEWS = { home: homeView, about: aboutView, location: locationView, "location-history": locationHistoryView, notes: notesView };
 
 const showView = (view) => {
   if (!(view in VIEWS)) throw new Error(`Unknown view: ${view}`);
@@ -94,10 +79,6 @@ const showView = (view) => {
     backBtn.hidden = view === "home";
     backBtn.disabled = view === "home";
     backBtn.tabIndex = view === "home" ? -1 : 0;
-  }
-  if (view === "track") {
-    hideLog();
-    updateMetrics();
   }
 };
 
@@ -229,7 +210,6 @@ openMapsBtn?.addEventListener("click", openRouteInMaps);
 toggleLogBtn?.addEventListener("click", toggleLogVisibility);
 
 openLocationViewBtn?.addEventListener("click", () => showView("location"));
-openTrackViewBtn?.addEventListener("click", () => showView("track"));
 openNotesViewBtn?.addEventListener("click", () => showView("notes"));
 openAboutViewBtn?.addEventListener("click", () => showView("about"));
 
@@ -281,18 +261,7 @@ updateBtn?.addEventListener("click", async () => {
   }
 });
 
-// Track controls
-startBtn?.addEventListener("click", startTracking);
-pauseBtn?.addEventListener("click", pauseTracking);
-finishBtn?.addEventListener("click", finishTracking);
 
-// Pause recording when app hidden (battery-friendly)
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden && hasActiveWatch()) {
-    pauseTracking();
-    console.log("App hidden; trail paused to conserve battery.");
-  }
-});
 
 // PWA: service worker + install prompt
 if ("serviceWorker" in navigator) {

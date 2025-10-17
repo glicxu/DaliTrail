@@ -14,7 +14,6 @@
   <!-- Preload ESM deps -->
   <link rel="modulepreload" href="/assets/js/utils.js"/>
   <link rel="modulepreload" href="/assets/js/location.js"/>
-  <link rel="modulepreload" href="/assets/js/track.js"/>
   <link rel="modulepreload" href="/assets/js/walk.js"/>
   <link rel="modulepreload" href="/assets/js/kml-import.js"/>
   <link rel="modulepreload" href="/assets/js/sketch-map.js"/>,
@@ -40,7 +39,7 @@
       <p class="intro">Pick how you want to use DaliTrail today.</p>
       <div class="home-actions">
         <button class="btn btn-primary" id="open-location-view-btn">Location</button>
-        <button class="btn btn-primary" id="open-track-view-btn">Track</button>
+
         <button class="btn btn-primary" id="open-notes-view-btn">Note</button>
       </div>
       <button class="icon-btn about-btn" id="open-about-view-btn" aria-label="About DaliTrail">
@@ -121,30 +120,6 @@
       </div>
     </section>
 
-    <section class="view track-view" data-view="track" hidden>
-      <div class="controls">
-        <button class="btn btn-primary" id="start-btn">Start</button>
-        <button class="btn btn-neutral" id="pause-btn" disabled>Pause</button>
-        <button class="btn btn-danger" id="finish-btn" disabled>Finish</button>
-      </div>
-
-      <section class="status">
-        <h2>Status</h2>
-        <p id="status-text">Ready when you are.</p>
-        <p><strong>Points recorded:</strong> <span id="points-count">0</span></p>
-        <p><strong>Total distance:</strong> <span id="distance">0 m</span></p>
-        <p><strong>Elevation gain:</strong> <span id="elevation-gain">0 m</span></p>
-        <p><strong>Elevation loss:</strong> <span id="elevation-loss">0 m</span></p>
-        <p><strong>Average speed:</strong> <span id="avg-speed">0 km/h</span></p>
-        <p><strong>Elapsed time:</strong> <span id="elapsed">00:00:00</span></p>
-      </section>
-
-      <section class="export" hidden>
-        <h2>Export</h2>
-        <button class="btn btn-primary" id="open-maps-btn">Open in Maps</button>
-      </section>
-    </section>
- 
     <section class="view notes-view" data-view="notes" hidden>
       <div class="notes-editor">
         <label for="note-input" class="visually-hidden">New note</label>
