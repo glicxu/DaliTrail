@@ -64,6 +64,16 @@ let installClickRequested = false;
 let installPromptWaitTimeoutId = null;
 let swRegistration = null;
 
+if (installSection) {
+  installSection.hidden = false;
+  if (installBtn) installBtn.disabled = true;
+  if (installStatusText) {
+    installStatusText.textContent = isSecure
+      ? "Checking install support..."
+      : "Install requires HTTPS or localhost.";
+  }
+}
+
 // ---------- Views ----------
 const VIEWS = { home: homeView, about: aboutView, location: locationView, "location-history": locationHistoryView, notes: notesView };
 
