@@ -34,9 +34,18 @@ const PRECACHE_ASSETS = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(PRECACHE).then((cache) => cache.addAll(PRECACHE_ASSETS))
-  );
+  event.waitUntil((async () => {
+    const cache = await caches.open(PRECACHE);
+    await Promise.all(
+      PRECACHE_ASSETS.map(async (asset) => {
+        try {
+          await cache.add(asset);
+        } catch (error) {
+          console.warn("[SW] Failed to precache", asset, error);
+        }
+      })
+    );
+  })());
   self.skipWaiting();
 });
 
