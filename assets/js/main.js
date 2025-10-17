@@ -430,6 +430,7 @@ let _reloading = false;
 navigator.serviceWorker?.addEventListener("controllerchange", () => {
   if (_reloading) return;
   _reloading = true;
+  logInstallEvent("Service worker controller changed; reloading to apply new version.");
   if (document.visibilityState === "visible") {
     window.location.reload();
   } else {
