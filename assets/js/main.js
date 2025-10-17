@@ -366,6 +366,23 @@ if ("serviceWorker" in navigator) {
   } else {
     window.addEventListener("load", registerServiceWorker, { once: true });
   }
+
+  navigator.serviceWorker.ready
+    .then((registration) => {
+      logInstallEvent("Service worker reported ready.");
+      if (registration.active) {
+        logInstallEvent("Active service worker state: " + registration.active.state);
+      }
+    })
+    .catch((error) => {
+      logInstallEvent(`Service worker ready() rejected: ${error?.message || error}`);
+    });
+
+  window.setTimeout(() => {
+    if (!navigator.serviceWorker.controller) {
+      logInstallEvent("Still no service worker controller after waiting; try closing other tabs for trail.dalifin.com and reload.");
+    }
+  }, 10000);
 } else {
   logInstallEvent("Service worker unsupported in this browser.");
 }
