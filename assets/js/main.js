@@ -168,7 +168,16 @@ const promptInstall = async () => {
 };
 
 // ---------- Permissions banner ----------
-const setStatus = (message) => (statusText.textContent = message);
+const setStatus = (message) => {
+  if (!statusText) return;
+  if (!message) {
+    statusText.textContent = "";
+    statusText.hidden = true;
+  } else {
+    statusText.textContent = message;
+    statusText.hidden = false;
+  }
+};
 const updatePermissionBanner = (geoPermission) => {
   if (geoPermission === "denied") {
     setStatus("Location access denied. Enable it in your browser settings to continue.");
