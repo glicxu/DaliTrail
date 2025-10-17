@@ -39,6 +39,19 @@ const statusText = document.getElementById("status-text");
 const toggleLogBtn = document.getElementById("toggle-log-btn");
 const logSection = document.querySelector(".log");
 const openMapsBtn = document.getElementById("open-maps-btn");
+const logList = document.getElementById("log");
+
+const logInstallEvent = (message) => {
+  if (!logList) return;
+  const li = document.createElement("li");
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const timestamp = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  li.textContent = `[${timestamp}] ${message}`;
+  logList.appendChild(li);
+  logSection?.removeAttribute("hidden");
+  toggleLogBtn?.classList.add("notify");
+};
 
 // NEW Location buttons
 const btnRecord = document.getElementById("btn-record-position");
@@ -72,6 +85,7 @@ if (installSection) {
       ? "Checking install support..."
       : "Install requires HTTPS or localhost.";
   }
+  logInstallEvent("Install section initialized.");
 }
 
 // ---------- Views ----------
@@ -141,6 +155,7 @@ const clearInstallPromptWait = () => {
 
 const promptInstall = async () => {
   if (!deferredInstallPrompt || !installBtn) return;
+  logInstallEvent("Install prompt requested.");
   installClickRequested = false;
   clearInstallPromptWait();
   installBtn.disabled = true;
@@ -151,6 +166,7 @@ const promptInstall = async () => {
     fallbackTimer = window.setTimeout(() => {
       installBtn.disabled = false;
       installStatusText.textContent = `Install prompt might be blocked. ${getManualInstallInstructions()}`;
+      logInstallEvent("Install prompt fallback: no prompt appeared within timeout.");
     }, 5000);
   };
   try {
@@ -161,17 +177,21 @@ const promptInstall = async () => {
     if (!choice) {
       installBtn.disabled = false;
       installStatusText && (installStatusText.textContent = `Install prompt may not be supported here. ${getManualInstallInstructions()}`);
+      logInstallEvent("Install prompt resolved with no user choice.");
       return;
     }
     if (choice.outcome === "accepted") {
       installSection.hidden = true;
+      logInstallEvent("User accepted install prompt.");
     } else {
       installBtn.disabled = false;
       installStatusText && (installStatusText.textContent = "Install was cancelled. You can try again anytime.");
+      logInstallEvent("User dismissed install prompt.");
     }
   } catch {
     installBtn.disabled = false;
     installStatusText && (installStatusText.textContent = `Unable to open install prompt. ${getManualInstallInstructions()}`);
+    logInstallEvent("Install prompt threw an error.");
   } finally {
     if (fallbackTimer) window.clearTimeout(fallbackTimer);
     deferredInstallPrompt = null;
@@ -248,6 +268,7 @@ backBtn?.addEventListener("click", () => {
 });
 
 installBtn?.addEventListener("click", async () => {
+  logInstallEvent("Install button clicked.");
   if (deferredInstallPrompt) return void promptInstall();
   if (isIosDevice) return alert(getManualInstallInstructions());
   if (isAndroidDevice || isWindowsDevice) {
@@ -260,6 +281,7 @@ installBtn?.addEventListener("click", async () => {
       installBtn && (installBtn.disabled = false);
       installStatusText && (installStatusText.textContent = getManualInstallInstructions());
       installPromptWaitTimeoutId = null;
+      logInstallEvent("Install prompt did not appear; showing manual instructions.");
     }, 4000);
     return;
   }
@@ -289,6 +311,7 @@ if ("serviceWorker" in navigator) {
     navigator.serviceWorker
       .register("/service-worker.js", { scope: "/" })
       .then((registration) => {
+        logInstallEvent("Service worker registered.");
         swRegistration = registration;
         installSection?.removeAttribute("hidden");
         if (installBtn) installBtn.disabled = false;
@@ -306,6 +329,7 @@ if ("serviceWorker" in navigator) {
       })
       .catch((error) => {
         console.log("SW registration failed:", error);
+        logInstallEvent(`Service worker registration failed: ${error?.message || error}`);
         if (installBtn) installBtn.disabled = false;
         if (installStatusText) {
           installStatusText.textContent = `Unable to register service worker. ${getManualInstallInstructions()}`;
@@ -317,6 +341,8 @@ if ("serviceWorker" in navigator) {
   } else {
     window.addEventListener("load", registerServiceWorker, { once: true });
   }
+} else {
+  logInstallEvent("Service worker unsupported in this browser.");
 }
 
 window.addEventListener("beforeinstallprompt", (event) => {
@@ -330,12 +356,14 @@ window.addEventListener("beforeinstallprompt", (event) => {
   if (installClickRequested) void promptInstall();
   installClickRequested = false;
   console.log("Install prompt ready.");
+  logInstallEvent("beforeinstallprompt event captured; install ready.");
 });
 
 window.addEventListener("appinstalled", () => {
   deferredInstallPrompt = null;
   installSection && (installSection.hidden = true);
   installStatusText && (installStatusText.textContent = "DaliTrail is already installed on this device.");
+  logInstallEvent("App installed successfully.");
 });
 
 // Geolocation permission banner
