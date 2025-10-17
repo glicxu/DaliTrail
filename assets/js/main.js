@@ -10,6 +10,7 @@ import {
   deleteSelectedLocations,
 } from "./location.js";
 
+import { updateMetrics, restoreTrailState } from "./track.js";
 
 import "/assets/js/notes.js";
 
