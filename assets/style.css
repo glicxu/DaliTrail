@@ -542,10 +542,11 @@ textarea::placeholder {
 }
 
 .history-group-details {
-    background: rgba(0, 0, 0, 0.28);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(12, 19, 33, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     border-radius: 16px;
-    padding: 4px 10px 12px;
+    padding: 6px 12px 14px;
+    color: rgba(248, 250, 252, 0.94);
 }
 
 .history-group-summary {
@@ -555,12 +556,12 @@ textarea::placeholder {
     gap: 12px;
     font-weight: 700;
     font-size: 1.05rem;
-    padding: 6px 4px;
+    padding: 8px 0;
     cursor: pointer;
 }
 
 .history-group-summary::-webkit-details-marker {
-    color: rgba(245, 245, 245, 0.7);
+    color: rgba(226, 232, 240, 0.8);
 }
 
 .history-group-title {
@@ -578,8 +579,8 @@ textarea::placeholder {
     border-radius: 999px;
     font-size: 0.85rem;
     font-weight: 600;
-    background: rgba(255, 255, 255, 0.12);
-    color: rgba(245, 245, 245, 0.85);
+    background: rgba(59, 130, 246, 0.18);
+    color: rgba(226, 232, 240, 0.92);
 }
 
 .history-group-list {

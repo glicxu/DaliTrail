@@ -179,8 +179,11 @@ function ensureActionButtons(locationView) {
     const style = document.createElement("style");
     style.id = "location-actions-row-style";
     style.textContent = `
-      .actions-row{display:flex;gap:.5rem;flex-wrap:wrap;margin:0 0 .75rem 0}
-      .actions-row .btn{padding:.5rem .8rem;border-radius:10px;border:1px solid currentColor;font-weight:700}
+      .actions-row{display:flex;gap:.5rem;overflow-x:auto;padding:0 0 .75rem;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch}
+      .actions-row::before,.actions-row::after{content:\"\";flex:0 0 .5rem}
+      .actions-row .btn{flex:0 0 auto;white-space:nowrap;padding:.5rem .8rem;border-radius:10px;border:1px solid currentColor;font-weight:700;scroll-snap-align:start}
+      .actions-row::-webkit-scrollbar{height:6px}
+      .actions-row::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:999px}
     `;
     document.head.appendChild(style);
   }

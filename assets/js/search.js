@@ -18,6 +18,8 @@ const resultsSection = document.getElementById("search-results-section");
 const resultsStatusText = document.getElementById("search-results-status");
 const resultsList = document.getElementById("search-results-list");
 
+const GEONAMES_META_KEY = "dalitrail:geonames-meta";
+
 const COUNTRY_NAMES = {
   US: "United States",
   CA: "Canada",
@@ -44,6 +46,7 @@ const CATEGORY_FEATURES = {
 const CITY_FEATURE_CODES = ["P.PPL", "P.PPLA", "P.PPLA2", "P.PPLL"];
 
 let currentEntry = null;
+let lastDatasetPromptTs = 0;
 
 const logSearchEvent = (message) => {
   window.dispatchEvent(
@@ -51,8 +54,60 @@ const logSearchEvent = (message) => {
   );
 };
 
+const readGeonamesMeta = () => {
+  try {
+    const raw = localStorage.getItem(GEONAMES_META_KEY);
+    if (!raw) return null;
+    const meta = JSON.parse(raw);
+    return meta && typeof meta === "object" ? meta : null;
+  } catch {
+    return null;
+  }
+};
+
+const datasetNeedsPermission = (meta) => {
+  if (!meta) return true;
+  if (meta.requiresPicker === true) return true;
+  if (!meta.fileName && !meta.cachePath) return true;
+  return false;
+};
+
+const promptForGeonames = (reason) => {
+  const now = Date.now();
+  if (now - lastDatasetPromptTs < 1500) return;
+  lastDatasetPromptTs = now;
+  logSearchEvent(`Prompting for GeoNames dataset (${reason}).`);
+  window.dispatchEvent(new CustomEvent("dalitrail:prompt-geonames", { detail: { reason } }));
+};
+
 const formatDisplayNumber = (value, digits = 6) =>
   Number.isFinite(value) ? Number.parseFloat(value).toFixed(digits) : "—";
+
+const formatBytes = (bytes) => {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB"];
+  let value = bytes / 1024;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unitIndex]}`;
+};
+
+const showLocalDatasetMeta = (meta) => {
+  if (!meta) return;
+  const parts = [];
+  if (meta.fileName) parts.push(meta.fileName);
+  if (meta.size) {
+    const formatted = formatBytes(meta.size);
+    if (formatted) parts.push(formatted);
+  }
+  if (meta.updatedAt) parts.push(new Date(meta.updatedAt).toLocaleString());
+  const message = parts.length ? parts.join(" • ") : "GeoNames database connected.";
+  setDatasetInfo(message, { hidden: false });
+};
 
 const setDatasetInfo = (message, options = { hidden: false }) => {
   if (!datasetInfoText) return;
@@ -151,6 +206,7 @@ const handleDatasetUnavailable = (message) => {
   setDatasetInfo(message, { hidden: false });
   setFormEnabled(false);
   logSearchEvent("Dataset unavailable; disabled search form.");
+  promptForGeonames(message || "Select a GeoNames database to continue.");
 };
 
 const fetchNearby = async ({ lat, lng, radiusKm, limit, featureCodes }) => {
@@ -310,14 +366,43 @@ window.addEventListener("dalitrail:search-load", (event) => {
     return;
   }
 
-  setFormEnabled(true);
-  if (datasetInfoText) datasetInfoText.hidden = true;
   renderSummary(entry, null);
-  setLocationStatus("Looking up nearby place names…");
   resetResults("Run a search to see suggested places around your location.");
   if (resultsSection) resultsSection.hidden = true;
   logSearchEvent(`Search view opened for location recorded ${formatTimestamp(entry.timestamp)}.`);
+  lastDatasetPromptTs = 0;
+  const meta = readGeonamesMeta();
+  if (!meta) {
+    setFormEnabled(false);
+    setDatasetInfo("Select a GeoNames database to search nearby places.", { hidden: false });
+    setLocationStatus("Connect a GeoNames database to continue.");
+    promptForGeonames("Search requires a GeoNames database.");
+    return;
+  }
+  showLocalDatasetMeta(meta);
+  if (datasetNeedsPermission(meta)) {
+    setFormEnabled(false);
+    setLocationStatus("Grant access to your GeoNames database to continue.");
+    promptForGeonames("Grant access to your GeoNames database.");
+    return;
+  }
+  setFormEnabled(true);
+  setLocationStatus("Looking up nearby place names...");
   void lookupLocationContext(entry);
+});
+
+window.addEventListener("dalitrail:geonames-updated", () => {
+  lastDatasetPromptTs = 0;
+  const meta = readGeonamesMeta();
+  if (!meta) return;
+  showLocalDatasetMeta(meta);
+  setFormEnabled(true);
+  if (currentEntry) {
+    setLocationStatus("GeoNames database connected. Looking up nearby place names...");
+    void lookupLocationContext(currentEntry);
+  } else {
+    setLocationStatus("GeoNames database connected. Select a location to search.");
+  }
 });
 
 searchForm?.addEventListener("submit", handleSearchSubmit);

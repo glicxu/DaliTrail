@@ -47,6 +47,7 @@ const geonamesConnectBtn = document.getElementById("geonames-connect-btn");
 const geonamesManageBtn = document.getElementById("geonames-manage-btn");
 const geonamesStatusText = document.getElementById("geonames-status");
 const geonamesFileInput = document.getElementById("geonames-file-input");
+const geonamesDetails = document.getElementById("geonames-section");
 const backupDownloadBtn = document.getElementById("backup-download-btn");
 const backupRestoreBtn = document.getElementById("backup-restore-btn");
 const backupFileInput = document.getElementById("backup-file-input");
@@ -363,6 +364,7 @@ const handleGeonamesDownload = async () => {
     };
     saveGeonamesMeta(meta);
     updateGeonamesStatus();
+    window.dispatchEvent(new CustomEvent("dalitrail:geonames-updated", { detail: { meta } }));
   } catch (error) {
     console.error("GeoNames download failed:", error);
     updateGeonamesStatus(`Download failed: ${error.message || error}`);
@@ -397,6 +399,7 @@ const handleGeonamesConnect = async () => {
       };
       saveGeonamesMeta(meta);
       updateGeonamesStatus();
+      window.dispatchEvent(new CustomEvent("dalitrail:geonames-updated", { detail: { meta } }));
       return;
     } catch (error) {
       if (error?.name === "AbortError") {
@@ -430,6 +433,7 @@ const handleGeonamesFileInput = async (event) => {
     };
     saveGeonamesMeta(meta);
     updateGeonamesStatus();
+    window.dispatchEvent(new CustomEvent("dalitrail:geonames-updated", { detail: { meta } }));
   } catch (error) {
     console.error("Failed to import GeoNames file:", error);
     updateGeonamesStatus(`Unable to read ${file.name}: ${error.message || error}`);
@@ -625,6 +629,14 @@ backupFileInput?.addEventListener("change", (event) => {
   updateBackupStatus(`Restoring from ${file.name}...`);
   void restoreBackupFromFile(file);
   input.value = "";
+});
+
+window.addEventListener("dalitrail:prompt-geonames", (event) => {
+  const reason = event?.detail?.reason || "GeoNames database required.";
+  logAppEvent(`GeoNames prompt: ${reason}`);
+  if (geonamesDetails instanceof HTMLDetailsElement) geonamesDetails.open = true;
+  updateGeonamesStatus(`${reason} Select a GeoNames database.`);
+  void handleGeonamesConnect();
 });
 
 window.addEventListener("dalitrail:request-search", (event) => {
