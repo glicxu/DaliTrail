@@ -247,12 +247,12 @@ const offerDownloadCopy = (buffer, fileName) => {
 };
 
 const handleGeonamesDownload = async () => {
-  updateGeonamesStatus("Downloading GeoNames sample database...");
+  updateGeonamesStatus("Downloading GeoNames lite dataset...");
   try {
-    const response = await fetch("/assets/data/geonames-sample.db", { cache: "no-store" });
+    const response = await fetch("/assets/data/geonames-lite-us-wa.db", { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
     const buffer = await response.arrayBuffer();
-    const fileName = `geonames-sample-${new Date().toISOString().slice(0, 10)}.db`;
+    const fileName = `geonames-lite-us-wa-${new Date().toISOString().slice(0, 10)}.db`;
     const cacheResult = await cacheGeonamesBuffer(buffer);
     offerDownloadCopy(buffer, fileName);
     const meta = {
