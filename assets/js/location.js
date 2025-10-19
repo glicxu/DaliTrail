@@ -196,10 +196,10 @@ function ensureActionButtons(locationView) {
     kmlInput = document.createElement("input");
     kmlInput.type = "file";
     kmlInput.id = "kmlFileInput";
-    kmlInput.accept = ".kml,application/vnd.google-earth.kml+xml";
+    kmlInput.accept = ".kml,.xml,application/vnd.google-earth.kml+xml,application/xml,text/xml";
     kmlInput.hidden = true; // or: kmlInput.style.display = "none";
-  locationView.prepend(kmlInput);
- }
+    locationView.prepend(kmlInput);
+  }
   // After building the row and before returning, wire the button:
   row.querySelector("#btn-import-kml")?.addEventListener("click", async () => {
     await ensureKmlImportHook();
