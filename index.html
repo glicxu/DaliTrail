@@ -17,6 +17,7 @@
   <link rel="modulepreload" href="/assets/js/walk.js"/>
   <link rel="modulepreload" href="/assets/js/kml-import.js"/>
   <link rel="modulepreload" href="/assets/js/sketch-map.js"/>,
+  <link rel="modulepreload" href="/assets/js/search.js"/>
   <link rel="modulepreload" href="/assets/js/main.js"/>,
   <link rel="modulepreload" href="/assets/js/notes.js"/>,
 </head>
@@ -69,6 +70,20 @@
         <button class="btn btn-outline" id="update-btn">Check for Updates</button>
       </section>
 
+      <section class="geonames" id="geonames-section">
+        <h3>GeoNames Data</h3>
+        <p class="section-copy">Connect a GeoNames SQLite database to search nearby features.</p>
+        <div class="geonames-actions">
+          <button class="btn btn-outline" type="button" id="geonames-download-btn">Download GeoNames</button>
+          <button class="btn btn-outline" type="button" id="geonames-connect-btn">Select Existing DB</button>
+        </div>
+        <p class="status-text geonames-status" id="geonames-status" role="status">No GeoNames database connected yet.</p>
+        <button class="btn icon-btn geonames-manage-btn" type="button" id="geonames-manage-btn" aria-label="Manage GeoNames data">
+          <span class="ellipsis-icon" aria-hidden="true"><span></span><span></span><span></span></span>
+        </button>
+        <input type="file" id="geonames-file-input" accept=".db,.sqlite,application/octet-stream" hidden/>
+      </section>
+
       <section class="log" hidden>
         <h3>Activity Log</h3>
         <ul id="log"></ul>
@@ -105,6 +120,51 @@
       </section>
 
       <button class="btn btn-outline" id="open-location-history-btn" disabled>Previous Locations</button>
+    </section>
+
+    <section class="view search-view" data-view="search" hidden>
+      <h2>Search Nearby</h2>
+      <p class="section-copy">Explore points of interest near your most recent location.</p>
+
+      <section class="search-location-card" id="search-location-card" hidden>
+        <h3>Selected Location</h3>
+        <div class="search-location-summary" id="search-location-summary"></div>
+        <p class="status-text" id="search-location-status">Looking up nearby place names…</p>
+      </section>
+
+      <p class="status-text" id="search-dataset-info" hidden></p>
+
+      <section class="search-actions" id="search-actions" hidden>
+        <h3>Search Places of Interest</h3>
+        <form id="search-nearby-form" class="search-form">
+          <label>
+            Radius (km)
+            <input type="number" id="search-radius" min="1" max="100" step="1" value="5"/>
+          </label>
+          <label>
+            Category
+            <select id="search-category">
+              <option value="all">All features</option>
+              <option value="trails">Trails & routes</option>
+              <option value="water">Water</option>
+              <option value="peaks">Mountains & peaks</option>
+              <option value="towns">Towns & cities</option>
+              <option value="parks">Parks & recreation</option>
+            </select>
+          </label>
+          <label>
+            Limit
+            <input type="number" id="search-limit" min="1" max="100" step="1" value="20"/>
+          </label>
+          <button class="btn btn-primary" type="submit">Search Nearby</button>
+        </form>
+      </section>
+
+      <section class="search-results" id="search-results-section" hidden>
+        <h3>Nearby Places</h3>
+        <p class="status-text" id="search-results-status">Run a search to see suggested places around your location.</p>
+        <ul id="search-results-list" class="search-results-list"></ul>
+      </section>
     </section>
 
     <section class="view location-history-view" data-view="location-history" hidden>

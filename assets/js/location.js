@@ -367,6 +367,7 @@ export const renderLatestLocation = () => {
   actions.innerHTML = `
     <button class="btn btn-primary" data-action="view">View on Map</button>
     <button class="btn btn-outline" data-action="share">Share</button>
+    <button class="btn btn-outline" data-action="search">Search</button>
   `;
   latestLocationCard.appendChild(actions);
 
@@ -1082,6 +1083,11 @@ function safeInit() {
         if (!entry) return;
         if (btn.dataset.action === "view") openLocationMap(entry);
         if (btn.dataset.action === "share") void shareLocationEntry(entry);
+        if (btn.dataset.action === "search") {
+          window.dispatchEvent(
+            new CustomEvent("dalitrail:request-search", { detail: { entry } })
+          );
+        }
       });
     }
 

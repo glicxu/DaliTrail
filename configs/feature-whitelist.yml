@@ -1,0 +1,28 @@
+# Feature codes to include in the DaliTrail GeoNames build.
+# Reference: https://www.geonames.org/export/codes.html
+#
+# Group them roughly by category so the ingestion script can keep them organised.
+
+hydrology:
+  - H.LK      # lake
+  - H.RPDS    # rapids
+  - H.SPNT    # springs
+
+terrain:
+  - T.MT      # mountain
+  - T.PK      # peak
+  - T.RDGE    # ridge
+  - T.PASS    # pass
+
+trails:
+  - T.TRL     # trail
+  - R.TRL     # road/trail segment (if present)
+
+populated:
+  - P.PPL     # populated place
+  - P.PPLA    # seat of a first-order admin division
+
+points_of_interest:
+  - S.CH      # church
+  - S.HUT     # hut/shelter
+  - S.CAMP    # campsite

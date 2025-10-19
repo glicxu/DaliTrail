@@ -257,6 +257,60 @@ body {
     line-height: 1.4;
 }
 
+.geonames {
+    margin-top: 24px;
+    padding: 18px;
+    border-radius: 16px;
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    display: grid;
+    gap: 12px;
+}
+
+.geonames-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.geonames-actions .btn {
+    flex: 1;
+    min-width: 180px;
+}
+
+.geonames-status {
+    margin: 0;
+    font-size: 0.95rem;
+    color: rgba(245, 245, 245, 0.75);
+}
+
+.geonames-manage-btn {
+    justify-self: flex-end;
+    background: rgba(255, 255, 255, 0.06);
+    width: 44px;
+    height: 44px;
+}
+
+.geonames-manage-btn:hover,
+.geonames-manage-btn:focus-visible {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+@media (prefers-color-scheme: light) {
+    .geonames {
+        background: rgba(255, 255, 255, 0.85);
+        border-color: rgba(0, 0, 0, 0.08);
+    }
+
+    .geonames-status {
+        color: rgba(54, 65, 82, 0.8);
+    }
+
+    .geonames-manage-btn {
+        background: rgba(15, 23, 42, 0.08);
+    }
+}
+
 .view[hidden] {
     display: none !important;
 }
@@ -416,6 +470,14 @@ textarea::placeholder {
 .latest-location .location-card .actions {
     display: flex;
     gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+    -webkit-overflow-scrolling: touch;
+}
+
+.latest-location .location-card .actions .btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
 }
 
 #locations-list {
@@ -576,6 +638,116 @@ textarea::placeholder {
 .history-actions::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.2);
     border-radius: 999px;
+}
+
+.search-view {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.search-location-card {
+    background: rgba(0, 0, 0, 0.28);
+    border-radius: 16px;
+    padding: 16px;
+    display: grid;
+    gap: 12px;
+}
+
+.search-location-summary {
+    display: grid;
+    gap: 8px;
+}
+
+.search-summary-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-weight: 600;
+}
+
+.search-summary-row span:last-child {
+    font-weight: 500;
+    opacity: 0.85;
+}
+
+.search-actions {
+    display: grid;
+    gap: 12px;
+}
+
+.search-form {
+    display: grid;
+    gap: 12px;
+}
+
+.search-form label {
+    display: grid;
+    gap: 4px;
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+.search-form input,
+.search-form select {
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background-color: rgba(0, 0, 0, 0.2);
+    color: inherit;
+}
+
+.search-results {
+    display: grid;
+    gap: 12px;
+}
+
+.search-results-list {
+    list-style: none;
+    display: grid;
+    gap: 12px;
+    padding: 0;
+    margin: 0;
+}
+
+.search-result-item {
+    background: rgba(0, 0, 0, 0.24);
+    border-radius: 14px;
+    padding: 14px;
+    display: grid;
+    gap: 8px;
+}
+
+.search-result-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.search-result-meta {
+    font-size: 0.9rem;
+    opacity: 0.85;
+    display: grid;
+    gap: 4px;
+}
+
+.search-result-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+@media (min-width: 640px) {
+    .search-form {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        align-items: end;
+    }
+
+    .search-form button {
+        justify-self: start;
+        min-width: 160px;
+    }
 }
 
 .history-actions::-webkit-scrollbar-track {

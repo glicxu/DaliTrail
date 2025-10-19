@@ -1,9 +1,12 @@
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+
+from geodata import GeoNamesDatasetNotFound, dataset_metadata, fetch_nearby_features, resolve_dataset_path
 
 BASE_DIR = Path(__file__).parent.resolve()
 
@@ -70,6 +73,99 @@ async def apple_touch_icon_precomposed():
 @app.get("/favicon.ico", response_class=FileResponse)
 async def favicon():
     return _icon_response("icon-192.png")
+
+
+class FeatureModel(BaseModel):
+    geoname_id: int
+    name: str
+    latitude: float
+    longitude: float
+    feature_class: str | None = None
+    feature_code: str | None = None
+    country: str | None = None
+    admin1: str | None = None
+    admin2: str | None = None
+    population: int | None = None
+    elevation: float | None = None
+    timezone: str | None = None
+    distance_km: float = Field(..., description="Distance from the query point in kilometers.")
+
+
+class NearbyResponse(BaseModel):
+    dataset: str
+    metadata: dict[str, str]
+    features: list[FeatureModel]
+
+
+def _get_dataset_path() -> Path:
+    try:
+        return resolve_dataset_path()
+    except GeoNamesDatasetNotFound as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/datasets/geonames-lite-us-wa.db", response_class=FileResponse)
+async def download_dataset():
+    dataset_path = _get_dataset_path()
+    if not dataset_path.exists():
+        raise HTTPException(status_code=404, detail="Dataset not found on disk.")
+    return FileResponse(
+        dataset_path,
+        media_type="application/octet-stream",
+        filename=dataset_path.name,
+    )
+
+
+@app.get("/api/places/nearby", response_model=NearbyResponse)
+async def nearby_places(
+    lat: float = Query(..., ge=-90.0, le=90.0, description="Latitude in decimal degrees."),
+    lng: float = Query(..., ge=-180.0, le=180.0, description="Longitude in decimal degrees."),
+    radius_km: float = Query(10.0, gt=0.0, le=100.0, description="Search radius in kilometers."),
+    limit: int = Query(25, ge=1, le=100, description="Maximum number of features to return."),
+    feature_codes: str | None = Query(
+        None,
+        description="Optional comma-separated feature codes (e.g., H.LK,T.TRL).",
+    ),
+):
+    dataset_path = _get_dataset_path()
+    codes: list[str] | None = None
+    if feature_codes:
+        codes = [item.strip() for item in feature_codes.split(",") if item.strip()]
+
+    features = fetch_nearby_features(
+        lat,
+        lng,
+        radius_km=radius_km,
+        limit=limit,
+        feature_codes=codes,
+        db_path=dataset_path,
+    )
+
+    response_features = [
+        FeatureModel(
+            geoname_id=feature.geoname_id,
+            name=feature.name,
+            latitude=feature.latitude,
+            longitude=feature.longitude,
+            feature_class=feature.feature_class,
+            feature_code=feature.feature_code,
+            country=feature.country,
+            admin1=feature.admin1,
+            admin2=feature.admin2,
+            population=feature.population,
+            elevation=feature.elevation,
+            timezone=feature.timezone,
+            distance_km=round(feature.distance_km, 3),
+        )
+        for feature in features
+    ]
+
+    metadata = dataset_metadata(dataset_path)
+    return NearbyResponse(
+        dataset=dataset_path.name,
+        metadata=metadata,
+        features=response_features,
+    )
 
 
 if __name__ == "__main__":
