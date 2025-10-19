@@ -78,7 +78,18 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true }) {
     .dot.target{background:#f97316}
     .line.path{display:inline-block;width:22px;height:0;border-top:3px solid #22c55e;border-radius:2px}
     .sketch-readout{font-family:ui-monospace,monospace;font-size:.95rem;opacity:.9}
-    .btn.sketch-close,.btn.sketch-fit,.btn.sketch-toggle-follow{padding:.4rem .7rem;border-radius:10px;border:1px solid currentColor;font-weight:600}
+    .sketch-actions .btn{padding:.55rem 1rem;font-size:1rem;border-radius:14px;font-weight:600;border-width:2px;background:rgba(37,99,235,0.12);color:#1d4ed8;border-color:rgba(37,99,235,0.55);box-shadow:0 6px 16px rgba(37,99,235,0.25)}
+    .sketch-actions .btn.sketch-close{color:#dc2626;border-color:rgba(220,38,38,0.5);background:rgba(220,38,38,0.12);box-shadow:0 6px 16px rgba(220,38,38,0.2)}
+    .sketch-actions .btn:focus-visible{outline:3px solid rgba(59,130,246,0.75);outline-offset:2px}
+    .sketch-actions .btn:active{transform:scale(.97)}
+    @media (prefers-color-scheme: dark){
+      .sketch-actions .btn{background:rgba(96,165,250,0.22);color:#e0f2fe;border-color:rgba(191,219,254,0.65);box-shadow:0 8px 20px rgba(59,130,246,0.35)}
+      .sketch-actions .btn.sketch-close{color:#fecaca;border-color:rgba(248,113,113,0.55);background:rgba(248,113,113,0.22);box-shadow:0 8px 20px rgba(248,113,113,0.3)}
+    }
+    @media (hover:none){
+      .sketch-actions .btn{border-color:rgba(37,99,235,0.75);background:rgba(37,99,235,0.2)}
+      .sketch-actions .btn.sketch-close{border-color:rgba(220,38,38,0.7);background:rgba(220,38,38,0.22)}
+    }
   `;
   overlay.appendChild(style);
   document.body.appendChild(overlay);

@@ -20,9 +20,12 @@ export function attachKmlImport({ input, getSaved, mergeAndSave, onStatus }) {
         onStatus?.("No importable coordinates found in KML.");
         return;
       }
-      const { added, total } = mergeAndSave(parsed);
-      onStatus?.(`Imported ${parsed.length} from KML (${added} new).`);
-      alert(`Parsed ${parsed.length} points. Added ${added} new locations. Total: ${total}.`);
+      const useFileTime = requestTimestampPreference(parsed);
+      const entries = useFileTime ? parsed : stampEntriesWithNow(parsed);
+      const { added, total } = mergeAndSave(entries);
+      const modeLabel = useFileTime ? "file timestamps" : "current time";
+      onStatus?.(`Imported ${entries.length} from KML (${added} new, ${modeLabel}).`);
+      alert(`Parsed ${parsed.length} points.\nApplied ${modeLabel} to ${entries.length} entries.\nAdded ${added} new locations. Total: ${total}.`);
     } catch (err) {
       console.error(err);
       const msg = err && typeof err === "object" && "message" in err ? err.message : String(err);
@@ -54,7 +57,8 @@ function parseKmlToEntries(kmlText) {
     const name = txt(pm, ["name"]);
     const desc = txt(pm, ["description"]);
     const when = txt(pm, ["TimeStamp > when", "TimeSpan > begin"]);
-    const timestamp = parseIsoTime(when) ?? Date.now();
+    const recordedTs = extractRecordedTimestamp(desc);
+    const timestamp = parseIsoTime(when) ?? recordedTs ?? Date.now();
 
     // Point
     const coordRaw = txt(pm, ["Point > coordinates"]);
@@ -114,4 +118,40 @@ function mkEntry({ lat, lng, alt, name, desc, timestamp, source }) {
   const note = baseNote || (source ? `Imported (${source})` : "Imported");
   const id = `${timestamp}-${round6(lat)}-${round6(lng)}-${Math.random().toString(16).slice(2, 6)}`;
   return { id, lat, lng, accuracy: null, altitude, note, timestamp };
+}
+
+function extractRecordedTimestamp(desc) {
+  if (typeof desc !== "string" || !desc.includes("Recorded:")) return null;
+  const match = desc.match(/Recorded:\s*([^\n\r]+)/i);
+  if (!match) return null;
+  const raw = match[1].trim();
+  if (!raw) return null;
+  const parsed = Date.parse(raw);
+  if (Number.isNaN(parsed)) return null;
+  return parsed;
+}
+
+function requestTimestampPreference(entries) {
+  if (!entries.length) return true;
+  const hasDistantTime = entries.some((entry) => Math.abs(Date.now() - entry.timestamp) > 60 * 1000);
+  const promptMessage = hasDistantTime
+    ? "Use the timestamps embedded in the KML file?\nChoose Cancel to stamp all imported points with the current time instead."
+    : "Use the timestamps embedded in the KML file?\n(It looks like the file timestamps are very close to now.)\nChoose Cancel to stamp with the current time.";
+  try {
+    return window.confirm(promptMessage);
+  } catch {
+    return true;
+  }
+}
+
+function stampEntriesWithNow(entries) {
+  const base = Date.now();
+  return entries.map((entry, idx) => {
+    const timestamp = base - idx;
+    return {
+      ...entry,
+      timestamp,
+      id: `${timestamp}-${round6(entry.lat)}-${round6(entry.lng)}-${Math.random().toString(16).slice(2, 6)}`,
+    };
+  });
 }

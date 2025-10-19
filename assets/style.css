@@ -425,6 +425,88 @@ textarea::placeholder {
     gap: 16px;
 }
 
+.history-group {
+    list-style: none;
+}
+
+.history-group-details {
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 4px 10px 12px;
+}
+
+.history-group-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-weight: 700;
+    font-size: 1.05rem;
+    padding: 6px 4px;
+    cursor: pointer;
+}
+
+.history-group-summary::-webkit-details-marker {
+    color: rgba(245, 245, 245, 0.7);
+}
+
+.history-group-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.history-group-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(245, 245, 245, 0.85);
+}
+
+.history-group-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 10px;
+}
+
+.history-group-controls {
+    display: flex;
+    justify-content: flex-end;
+    margin: 4px 0 6px;
+}
+
+.history-group-controls .history-group-toggle {
+    padding: 6px 12px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+@media (prefers-color-scheme: light) {
+    .history-group-details {
+        background: rgba(255, 255, 255, 0.85);
+        border-color: rgba(0, 0, 0, 0.08);
+    }
+
+    .history-group-summary::-webkit-details-marker {
+        color: rgba(54, 65, 82, 0.7);
+    }
+
+    .history-group-count {
+        background: rgba(43, 127, 246, 0.12);
+        color: #1d4ed8;
+    }
+}
+
 #locations-list .location-history-item {
     background: rgba(0, 0, 0, 0.25);
     border-radius: 14px;
@@ -458,9 +540,19 @@ textarea::placeholder {
 }
 
 .history-actions {
-    display: grid;
+    display: flex;
     gap: 12px;
     margin-top: 12px;
+    overflow-x: auto;
+    padding: 4px 0 8px;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+}
+
+.history-actions::before,
+.history-actions::after {
+    content: "";
+    flex: 0 0 12px;
 }
 
 .log-toggle {
@@ -469,6 +561,25 @@ textarea::placeholder {
 
 .log-toggle .btn {
     width: 100%;
+}
+
+.history-actions .btn {
+    flex: 0 0 auto;
+    min-width: 180px;
+    scroll-snap-align: start;
+}
+
+.history-actions::-webkit-scrollbar {
+    height: 6px;
+}
+
+.history-actions::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 999px;
+}
+
+.history-actions::-webkit-scrollbar-track {
+    background: transparent;
 }
 
 @media (max-width: 600px) {

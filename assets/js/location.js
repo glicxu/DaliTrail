@@ -379,6 +379,11 @@ export const renderLatestLocation = () => {
 
 export const renderLocationHistory = () => {
   if (!locationsList || !locationHistoryStatus) return;
+  const previouslyOpenGroups = new Set(
+    Array.from(locationsList.querySelectorAll(".history-group-details"))
+      .filter((el) => el.open && el.parentElement?.dataset?.group)
+      .map((el) => el.parentElement.dataset.group)
+  );
   locationsList.innerHTML = "";
 
   const validIds = new Set(savedLocations.map((e) => e.id));
@@ -392,16 +397,20 @@ export const renderLocationHistory = () => {
   }
 
   locationHistoryStatus.textContent = `Select the locations you want to act on.`;
-  savedLocations.forEach((entry) => {
-    const li = document.createElement("li");
-    li.className = "location-history-item";
-    li.dataset.id = entry.id;
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+  const createHistoryItem = (entry) => {
+    const item = document.createElement("li");
+    item.className = "location-history-item";
+    item.dataset.id = entry.id;
 
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.value = entry.id;
     checkbox.checked = selectedLocationIds.has(entry.id);
-    li.appendChild(checkbox);
+    item.appendChild(checkbox);
 
     const card = document.createElement("div");
     card.className = "location-card";
@@ -420,9 +429,91 @@ export const renderLocationHistory = () => {
       note.textContent = entry.note;
       card.appendChild(note);
     }
-    li.appendChild(card);
-    locationsList.appendChild(li);
+    item.appendChild(card);
+    return item;
+  };
+
+  const groups = [
+    {
+      id: "today",
+      label: "Today",
+      test: (days) => days === 0,
+      entries: [],
+    },
+    {
+      id: "last-7",
+      label: "Last 7 days",
+      test: (days) => days > 0 && days < 7,
+      entries: [],
+    },
+    {
+      id: "last-30",
+      label: "Last 30 days",
+      test: (days) => days >= 7 && days < 30,
+      entries: [],
+    },
+    {
+      id: "older",
+      label: "Older",
+      test: () => true,
+      entries: [],
+    },
+  ];
+
+  savedLocations.forEach((entry) => {
+    const entryDate = new Date(entry.timestamp);
+    const entryStart = new Date(entryDate.getFullYear(), entryDate.getMonth(), entryDate.getDate()).getTime();
+    const diff = todayStart - entryStart;
+    const daysDiff = Number.isFinite(diff) ? Math.max(0, Math.floor(diff / MS_PER_DAY)) : 0;
+    const group = groups.find((g) => g.test(daysDiff)) || groups[groups.length - 1];
+    group.entries.push(entry);
   });
+
+  groups
+    .filter((g) => g.entries.length)
+    .forEach((group, index) => {
+      const wrapper = document.createElement("li");
+      wrapper.className = "history-group";
+      wrapper.dataset.group = group.id;
+
+      const details = document.createElement("details");
+      details.className = "history-group-details";
+      details.open = index === 0;
+
+      const summary = document.createElement("summary");
+      summary.className = "history-group-summary";
+      const selectedCount = group.entries.reduce(
+        (acc, entry) => acc + (selectedLocationIds.has(entry.id) ? 1 : 0),
+        0
+      );
+      const allSelected = selectedCount === group.entries.length;
+      summary.innerHTML = `
+        <span class="history-group-title">${group.label}</span>
+        <span class="history-group-count">${group.entries.length}</span>
+      `;
+      details.appendChild(summary);
+
+      const controls = document.createElement("div");
+      controls.className = "history-group-controls";
+      const toggleBtn = document.createElement("button");
+      toggleBtn.type = "button";
+      toggleBtn.className = "btn btn-outline history-group-toggle";
+      toggleBtn.dataset.ids = group.entries.map((entry) => entry.id).join(",");
+      toggleBtn.dataset.mode = allSelected ? "clear" : "select";
+      toggleBtn.textContent = allSelected ? "Unselect all" : "Select all";
+      controls.appendChild(toggleBtn);
+      details.appendChild(controls);
+
+      const list = document.createElement("ul");
+      list.className = "history-group-list";
+      list.setAttribute("role", "list");
+      group.entries.forEach((entry) => list.appendChild(createHistoryItem(entry)));
+      details.appendChild(list);
+
+      details.open = previouslyOpenGroups.has(group.id) || (previouslyOpenGroups.size === 0 && index === 0);
+      wrapper.appendChild(details);
+      locationsList.appendChild(wrapper);
+    });
 
   ensureHistoryActionButtons();
   updateHistoryActions();
@@ -434,23 +525,25 @@ function ensureHistoryActionButtons() {
     document.querySelector(".history-actions");
   if (!container) return;
 
-  let walkBtn = document.getElementById("history-walk-btn");
-  if (!walkBtn) {
-    walkBtn = document.createElement("button");
-    walkBtn.id = "history-walk-btn";
-    walkBtn.className = "btn btn-outline";
-    walkBtn.textContent = "Walk to this location";
-    container.appendChild(walkBtn);
-  }
+  const ensureButton = (id, text) => {
+    let btn = document.getElementById(id);
+    if (!btn) {
+      btn = document.createElement("button");
+      btn.id = id;
+      btn.className = "btn btn-outline";
+      btn.textContent = text;
+      container.appendChild(btn);
+    }
+    return btn;
+  };
 
-  let sketchBtn = document.getElementById("history-sketch-btn");
-  if (!sketchBtn) {
-    sketchBtn = document.createElement("button");
-    sketchBtn.id = "history-sketch-btn";
-    sketchBtn.className = "btn btn-outline";
-    sketchBtn.textContent = "Sketch map";
-    container.insertBefore(sketchBtn, walkBtn);
-  }
+  const sketchBtn = ensureButton("history-sketch-btn", "Sketch map");
+  const walkBtn = ensureButton("history-walk-btn", "Walk to this location");
+  const editBtn = ensureButton("history-edit-btn", "Edit");
+
+  // Reorder so sketch, walk, and edit stay grouped.
+  if (sketchBtn.nextElementSibling !== walkBtn) container.insertBefore(walkBtn, sketchBtn.nextSibling);
+  if (walkBtn.nextElementSibling !== editBtn) container.insertBefore(editBtn, walkBtn.nextSibling);
 }
 
 const updateHistoryActions = () => {
@@ -460,6 +553,7 @@ const updateHistoryActions = () => {
 
   const walkBtn = document.getElementById("history-walk-btn");
   const sketchBtn = document.getElementById("history-sketch-btn");
+  const editBtn = document.getElementById("history-edit-btn");
 
   const selCount = selectedLocationIds.size;
   const hasSelection = selCount > 0;
@@ -469,8 +563,100 @@ const updateHistoryActions = () => {
   if (historyDeleteBtn) historyDeleteBtn.disabled = !hasSelection;
 
   if (walkBtn) walkBtn.disabled = selCount !== 1;
+  if (editBtn) editBtn.disabled = selCount !== 1;
   if (sketchBtn) sketchBtn.disabled = !hasSelection;
 };
+
+function openEditLocationModal(entry) {
+  const overlay = openModal({
+    title: "Edit location",
+    saveText: "Save changes",
+    html: `
+      <div class="form-row">
+        <label for="edit-coords">Coordinates</label>
+        <div id="edit-coords" class="status-note"></div>
+      </div>
+      <div class="form-row">
+        <label for="edit-note">Notes (optional)</label>
+        <textarea id="edit-note" rows="3" placeholder="Add details or reminders about this spot"></textarea>
+      </div>
+      <div class="form-row">
+        <label for="edit-accuracy">Accuracy (meters, optional)</label>
+        <input id="edit-accuracy" type="number" inputmode="decimal" min="0" step="0.1" placeholder="e.g., 8.5">
+      </div>
+      <div class="form-row">
+        <label for="edit-altitude">Altitude (meters, optional)</label>
+        <input id="edit-altitude" type="number" inputmode="decimal" step="0.1" placeholder="e.g., 512">
+      </div>
+      <div class="status-note">Coordinates are read-only. Update the note or metadata, then save.</div>
+    `,
+    onSave: (ovl) => {
+      const noteInput = /** @type {HTMLTextAreaElement|null} */ (ovl.querySelector("#edit-note"));
+      const accInput = /** @type {HTMLInputElement|null} */ (ovl.querySelector("#edit-accuracy"));
+      const altInput = /** @type {HTMLInputElement|null} */ (ovl.querySelector("#edit-altitude"));
+
+      const note = noteInput?.value.trim() || "";
+      const accRaw = accInput?.value.trim() || "";
+      const altRaw = altInput?.value.trim() || "";
+
+      let accuracy = null;
+      if (accRaw) {
+        const parsed = Number(accRaw);
+        if (!Number.isFinite(parsed) || parsed < 0) {
+          if (accInput) accInput.setCustomValidity("Enter a non-negative number.");
+          accInput?.reportValidity();
+          return false;
+        }
+        accuracy = parsed;
+      } else if (accInput) {
+        accInput.setCustomValidity("");
+      }
+
+      let altitude = null;
+      if (altRaw) {
+        const parsed = Number(altRaw);
+        if (!Number.isFinite(parsed)) {
+          if (altInput) altInput.setCustomValidity("Enter a numeric altitude.");
+          altInput?.reportValidity();
+          return false;
+        }
+        altitude = parsed;
+      } else if (altInput) {
+        altInput.setCustomValidity("");
+      }
+
+      entry.note = note;
+      if (accuracy === null) delete entry.accuracy;
+      else entry.accuracy = accuracy;
+      if (altitude === null) delete entry.altitude;
+      else entry.altitude = altitude;
+
+      persistSavedLocations();
+      renderLatestLocation();
+      renderLocationHistory();
+      locationHistoryStatus && (locationHistoryStatus.textContent = "Location updated.");
+      return true;
+    },
+  });
+
+  const coordsField = overlay.querySelector("#edit-coords");
+  if (coordsField) coordsField.textContent = `${entry.lat.toFixed(6)}, ${entry.lng.toFixed(6)}`;
+
+  const noteField = overlay.querySelector("#edit-note");
+  if (noteField instanceof HTMLTextAreaElement) noteField.value = entry.note || "";
+
+  const accField = overlay.querySelector("#edit-accuracy");
+  if (accField instanceof HTMLInputElement) {
+    accField.value = Number.isFinite(entry.accuracy) ? String(entry.accuracy) : "";
+    accField.addEventListener("input", () => accField.setCustomValidity(""));
+  }
+
+  const altField = overlay.querySelector("#edit-altitude");
+  if (altField instanceof HTMLInputElement) {
+    altField.value = Number.isFinite(entry.altitude) ? String(entry.altitude) : "";
+    altField.addEventListener("input", () => altField.setCustomValidity(""));
+  }
+}
 
 // ⛔️ Removed the two top-level listeners; we'll bind them inside safeInit()
 
@@ -500,6 +686,21 @@ document.addEventListener("click", async (e) => {
       console.error(err);
       alert("Unable to open sketch map.");
     }
+  }
+
+  if (btn.id === "history-edit-btn") {
+    const selected = getSelectedLocations();
+    if (selected.length !== 1) return;
+    openEditLocationModal(selected[0]);
+  }
+
+  if (btn.classList.contains("history-group-toggle")) {
+    const ids = btn.dataset.ids ? btn.dataset.ids.split(",").filter(Boolean) : [];
+    if (!ids.length) return;
+    const mode = btn.dataset.mode === "clear" ? "clear" : "select";
+    if (mode === "select") ids.forEach((id) => selectedLocationIds.add(id));
+    else ids.forEach((id) => selectedLocationIds.delete(id));
+    renderLocationHistory();
   }
 });
 

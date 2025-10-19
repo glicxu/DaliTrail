@@ -62,7 +62,18 @@ export function startWalkingTo(entry) {
   .walk-arrow{font-size:3.25rem;text-align:center;line-height:1;transform:rotate(0deg);transition:transform .15s ease;color:#2563eb;text-shadow:0 2px 8px rgba(0,0,0,.35);user-select:none}
   @media (prefers-color-scheme: dark){.walk-arrow{color:#60a5fa}}
   .status-text#walk-status{font-size:.95rem;opacity:.9;margin:.2rem 0 0 0}
-  .btn.walk-close,.btn.walk-open-sketch{padding:.4rem .7rem;border-radius:10px;border:1px solid currentColor;font-weight:600}
+  .walk-actions .btn{padding:.55rem 1rem;font-size:1rem;border-radius:14px;font-weight:600;border-width:2px;background:rgba(37,99,235,0.12);color:#1d4ed8;border-color:rgba(37,99,235,0.55);box-shadow:0 6px 16px rgba(37,99,235,0.25)}
+  .walk-actions .btn.walk-close{color:#dc2626;border-color:rgba(220,38,38,0.5);background:rgba(220,38,38,0.15);box-shadow:0 6px 16px rgba(220,38,38,0.22)}
+  .walk-actions .btn:focus-visible{outline:3px solid rgba(59,130,246,0.75);outline-offset:2px}
+  .walk-actions .btn:active{transform:scale(.97)}
+  @media (prefers-color-scheme: dark){
+    .walk-actions .btn{background:rgba(96,165,250,0.22);color:#e0f2fe;border-color:rgba(191,219,254,0.65);box-shadow:0 8px 20px rgba(59,130,246,0.35)}
+    .walk-actions .btn.walk-close{color:#fecaca;border-color:rgba(248,113,113,0.55);background:rgba(248,113,113,0.24);box-shadow:0 8px 20px rgba(248,113,113,0.3)}
+  }
+  @media (hover:none){
+    .walk-actions .btn{border-color:rgba(37,99,235,0.75);background:rgba(37,99,235,0.22)}
+    .walk-actions .btn.walk-close{border-color:rgba(220,38,38,0.7);background:rgba(220,38,38,0.26)}
+  }
   `;
   overlay.appendChild(style);
   document.body.appendChild(overlay);
