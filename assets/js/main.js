@@ -172,6 +172,7 @@ const toggleLogVisibility = () => (logSection.hidden ? (toggleLogBtn.classList.r
 
 // ---------- GeoNames helpers ----------
 const GEONAMES_META_KEY = "dalitrail:geonames-meta";
+const GEONAMES_INLINE_KEY = "dalitrail:geonames-inline";
 const BACKUP_VERSION = 1;
 const BACKUP_PREFIX = "dalitrail:";
 
@@ -204,6 +205,37 @@ const formatBytes = (bytes) => {
     unitIndex += 1;
   }
   return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unitIndex]}`;
+};
+
+const bytesToBase64 = (bytes) => {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+};
+
+const storeGeonamesInline = (buffer) => {
+  try {
+    const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+    const base64 = bytesToBase64(bytes);
+    localStorage.setItem(GEONAMES_INLINE_KEY, base64);
+    return bytes.byteLength;
+  } catch (error) {
+    console.warn("Unable to store inline GeoNames copy:", error);
+    clearGeonamesInline();
+    return 0;
+  }
+};
+
+const clearGeonamesInline = () => {
+  try {
+    localStorage.removeItem(GEONAMES_INLINE_KEY);
+  } catch (_) {
+    /* ignore */
+  }
 };
 
 const updateGeonamesStatus = (overrideMessage) => {
@@ -353,6 +385,7 @@ const handleGeonamesDownload = async () => {
     const buffer = await response.arrayBuffer();
     const fileName = `geonames-lite-us-wa-${new Date().toISOString().slice(0, 10)}.db`;
     const cacheResult = await cacheGeonamesBuffer(buffer);
+    const inlineBytes = storeGeonamesInline(buffer);
     offerDownloadCopy(buffer, fileName);
     const meta = {
       source: "download",
@@ -361,6 +394,7 @@ const handleGeonamesDownload = async () => {
       updatedAt: Date.now(),
       cached: cacheResult.cached,
       cachePath: cacheResult.path || null,
+      inlineBytes,
     };
     saveGeonamesMeta(meta);
     updateGeonamesStatus();
@@ -388,6 +422,7 @@ const handleGeonamesConnect = async () => {
       const file = await handle.getFile();
       const buffer = await file.arrayBuffer();
       const cacheResult = await cacheGeonamesBuffer(buffer);
+      const inlineBytes = storeGeonamesInline(buffer);
       const meta = {
         source: "user-file",
         fileName: file.name,
@@ -396,6 +431,7 @@ const handleGeonamesConnect = async () => {
         cached: cacheResult.cached,
         cachePath: cacheResult.path || null,
         requiresPicker: true,
+        inlineBytes,
       };
       saveGeonamesMeta(meta);
       updateGeonamesStatus();
@@ -422,6 +458,7 @@ const handleGeonamesFileInput = async (event) => {
   try {
     const buffer = await file.arrayBuffer();
     const cacheResult = await cacheGeonamesBuffer(buffer);
+    const inlineBytes = storeGeonamesInline(buffer);
     const meta = {
       source: "user-file",
       fileName: file.name,
@@ -430,6 +467,7 @@ const handleGeonamesFileInput = async (event) => {
       cached: cacheResult.cached,
       cachePath: cacheResult.path || null,
       requiresPicker: false,
+      inlineBytes,
     };
     saveGeonamesMeta(meta);
     updateGeonamesStatus();

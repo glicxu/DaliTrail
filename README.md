@@ -114,7 +114,7 @@ curl "http://localhost:8000/api/places/nearby?lat=47.6062&lng=-122.3321&radius_k
 
 The response includes dataset metadata (if present) and an ordered list of features with their distance in kilometres from the supplied coordinates.
 
-Inside the PWA, the Location view's new Search button uses this endpoint to surface nearby places of interest for the latest saved point.
+Inside the PWA, the Location view's Search button reads the downloaded GeoNames SQLite bundle directly in the browser (via sql.js) to surface nearby places of interest for the latest saved point. The first time you use it the app will fetch the sql.js runtime (cached afterwards), so make sure you are online once before relying on the feature offline.
 
 ## Backup & Restore
 

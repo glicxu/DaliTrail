@@ -6,8 +6,8 @@
 // - Runtime cache for other same-origin GET requests
 // - Supports update flow via postMessage("SKIP_WAITING")
 
-const PRECACHE = "dalitrail-precache-v5";  // bump when asset list changes
-const RUNTIME  = "dalitrail-runtime-v5";
+const PRECACHE = "dalitrail-precache-v6";  // bump when asset list changes
+const RUNTIME  = "dalitrail-runtime-v6";
 
 const PRECACHE_ASSETS = [
   // App shell (precached so first launch can work offline)
@@ -31,6 +31,9 @@ const PRECACHE_ASSETS = [
   "/assets/js/sketch-map.js",
   "/assets/js/kml-import.js",
   "/assets/js/walk.js",
+  "/assets/js/search.js",
+  "/assets/js/vendor/sql-wasm.js",
+  "/assets/js/vendor/sql-wasm.wasm",
 ];
 
 self.addEventListener("install", (event) => {
