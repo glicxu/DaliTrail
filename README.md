@@ -116,3 +116,6 @@ The response includes dataset metadata (if present) and an ordered list of featu
 
 Inside the PWA, the Location view's new Search button uses this endpoint to surface nearby places of interest for the latest saved point.
 
+## Backup & Restore
+
+Use the About tab in the PWA and expand *Backup & Restore* to export a JSON snapshot of all saved data (locations, notes, trail sessions, and GeoNames metadata). The same panel lets you load the file on another device to restore what you backed up.

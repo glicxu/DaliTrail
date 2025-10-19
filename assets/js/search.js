@@ -45,6 +45,12 @@ const CITY_FEATURE_CODES = ["P.PPL", "P.PPLA", "P.PPLA2", "P.PPLL"];
 
 let currentEntry = null;
 
+const logSearchEvent = (message) => {
+  window.dispatchEvent(
+    new CustomEvent("dalitrail:log", { detail: { message: `Search: ${message}` } })
+  );
+};
+
 const formatDisplayNumber = (value, digits = 6) =>
   Number.isFinite(value) ? Number.parseFloat(value).toFixed(digits) : "—";
 
@@ -52,6 +58,7 @@ const setDatasetInfo = (message, options = { hidden: false }) => {
   if (!datasetInfoText) return;
   datasetInfoText.textContent = message;
   datasetInfoText.hidden = options.hidden ?? false;
+  logSearchEvent(message);
 };
 
 const setLocationStatus = (message) => {
@@ -143,6 +150,7 @@ const extractContext = (feature) => {
 const handleDatasetUnavailable = (message) => {
   setDatasetInfo(message, { hidden: false });
   setFormEnabled(false);
+  logSearchEvent("Dataset unavailable; disabled search form.");
 };
 
 const fetchNearby = async ({ lat, lng, radiusKm, limit, featureCodes }) => {
@@ -155,6 +163,7 @@ const fetchNearby = async ({ lat, lng, radiusKm, limit, featureCodes }) => {
   if (featureCodes && featureCodes.length) params.set("feature_codes", featureCodes.join(","));
 
   const url = `/api/places/nearby?${params.toString()}`;
+  logSearchEvent(`Requesting nearby places (${url})`);
   const response = await fetch(url, { headers: { Accept: "application/json" } });
   if (!response.ok) {
     let detail = response.statusText || "Request failed";
@@ -164,9 +173,12 @@ const fetchNearby = async ({ lat, lng, radiusKm, limit, featureCodes }) => {
     } catch {
       /* keep default detail */
     }
+    logSearchEvent(`Request failed: ${detail}`);
     throw new Error(detail);
   }
-  return response.json();
+  const json = await response.json();
+  logSearchEvent(`Request succeeded with ${json?.features?.length ?? 0} result(s).`);
+  return json;
 };
 
 const applyDatasetMeta = (data) => {
@@ -181,6 +193,7 @@ const applyDatasetMeta = (data) => {
 
 const lookupLocationContext = async (entry) => {
   if (!entry) return;
+  logSearchEvent(`Loading context near ${entry.lat.toFixed(5)}, ${entry.lng.toFixed(5)}`);
   setLocationStatus("Looking up nearby place names…");
   try {
     const data = await fetchNearby({
@@ -195,8 +208,10 @@ const lookupLocationContext = async (entry) => {
     const context = extractContext(feature);
     if (context && context.city) {
       setLocationStatus(`Nearest city: ${context.city}${context.stateName ? `, ${context.stateName}` : ""}.`);
+      logSearchEvent(`Nearest populated place: ${context.city}${context.stateName ? `, ${context.stateName}` : ""}`);
     } else {
       setLocationStatus("No populated places within 25 km.");
+      logSearchEvent("No populated place within 25 km.");
     }
     renderSummary(entry, context);
   } catch (error) {
@@ -242,6 +257,7 @@ const renderResults = (features = []) => {
 const handleSearchSubmit = async (event) => {
   event.preventDefault();
   if (!currentEntry) return;
+  logSearchEvent("Search form submitted.");
   setResultsStatus("Searching nearby places…");
   if (resultsSection) resultsSection.hidden = false;
 
@@ -249,6 +265,7 @@ const handleSearchSubmit = async (event) => {
   const limit = Math.min(100, Math.max(1, Number.parseInt(limitInput?.value, 10) || 20));
   const categoryKey = categorySelect?.value || "all";
   const featureCodes = CATEGORY_FEATURES[categoryKey] || null;
+  logSearchEvent(`Parameters -> radius: ${radiusKm} km, limit: ${limit}, category: ${categoryKey}`);
 
   try {
     const data = await fetchNearby({
@@ -262,6 +279,7 @@ const handleSearchSubmit = async (event) => {
     renderResults(data.features || []);
   } catch (error) {
     resetResults(error.message || "Search failed.");
+    logSearchEvent(`Search failed: ${error?.message || error}`);
     if (/dataset/i.test(error.message) || /GeoNames/i.test(error.message)) {
       handleDatasetUnavailable("GeoNames dataset not available. Download or connect one from the About page.");
     }
@@ -288,6 +306,7 @@ window.addEventListener("dalitrail:search-load", (event) => {
     setFormEnabled(false);
     resetResults("Select a location to search nearby places.");
     if (resultsSection) resultsSection.hidden = true;
+    logSearchEvent("Search view opened without a selected location.");
     return;
   }
 
@@ -297,6 +316,7 @@ window.addEventListener("dalitrail:search-load", (event) => {
   setLocationStatus("Looking up nearby place names…");
   resetResults("Run a search to see suggested places around your location.");
   if (resultsSection) resultsSection.hidden = true;
+  logSearchEvent(`Search view opened for location recorded ${formatTimestamp(entry.timestamp)}.`);
   void lookupLocationContext(entry);
 });
 

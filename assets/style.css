@@ -239,32 +239,75 @@ body {
     color: rgba(245, 245, 245, 0.85);
 }
 
-.update {
-    background: rgba(0, 0, 0, 0.2);
-    padding: 16px;
-    border-radius: 12px;
+.about-panel {
+    margin-top: 16px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(12, 19, 33, 0.92);
+    color: rgba(248, 250, 252, 0.94);
+    overflow: hidden;
+}
+
+.about-panel:first-of-type {
+    margin-top: 0;
+}
+
+.about-panel summary {
+    list-style: none;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px;
+    cursor: pointer;
+    user-select: none;
+    color: inherit;
+}
+
+.about-panel summary::-webkit-details-marker {
+    display: none;
+}
+
+.about-panel summary::after {
+    content: "v";
+    margin-left: auto;
+    font-size: 0.9rem;
+    opacity: 0.75;
+    transition: transform 0.2s ease;
+    align-self: flex-start;
+    color: rgba(248, 250, 252, 0.7);
+}
+
+.about-panel[open] summary::after {
+    transform: rotate(180deg);
+}
+
+.about-panel-header {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 4px;
 }
 
-.update h2 {
-    font-size: 1.2rem;
+.about-panel-title {
+    font-weight: 700;
+    font-size: 1.05rem;
 }
 
-.update p {
-    color: rgba(245, 245, 245, 0.8);
-    line-height: 1.4;
+.about-panel-summary {
+    font-size: 0.95rem;
+    color: rgba(226, 232, 240, 0.72);
 }
 
-.geonames {
-    margin-top: 24px;
-    padding: 18px;
-    border-radius: 16px;
-    background: rgba(0, 0, 0, 0.28);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+.about-panel-body {
+    padding: 0 18px 18px;
     display: grid;
     gap: 12px;
+    color: inherit;
+}
+
+.about-panel-body .status-text {
+    margin: 0;
+    color: rgba(226, 232, 240, 0.7);
 }
 
 .geonames-actions {
@@ -278,15 +321,29 @@ body {
     min-width: 180px;
 }
 
+.geonames-actions .geonames-manage-btn {
+    flex: 0 0 44px;
+}
+
+.backup-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.backup-actions .btn {
+    min-width: 200px;
+}
+
 .geonames-status {
     margin: 0;
     font-size: 0.95rem;
-    color: rgba(245, 245, 245, 0.75);
+    color: rgba(226, 232, 240, 0.7);
 }
 
 .geonames-manage-btn {
     justify-self: flex-end;
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.08);
     width: 44px;
     height: 44px;
 }
@@ -297,17 +354,10 @@ body {
 }
 
 @media (prefers-color-scheme: light) {
-    .geonames {
-        background: rgba(255, 255, 255, 0.85);
-        border-color: rgba(0, 0, 0, 0.08);
-    }
-
-    .geonames-status {
-        color: rgba(54, 65, 82, 0.8);
-    }
-
-    .geonames-manage-btn {
-        background: rgba(15, 23, 42, 0.08);
+    .about-panel {
+        background: rgba(17, 24, 39, 0.94);
+        border-color: rgba(15, 23, 42, 0.4);
+        color: rgba(248, 250, 252, 0.94);
     }
 }
 

@@ -47,8 +47,12 @@ const geonamesConnectBtn = document.getElementById("geonames-connect-btn");
 const geonamesManageBtn = document.getElementById("geonames-manage-btn");
 const geonamesStatusText = document.getElementById("geonames-status");
 const geonamesFileInput = document.getElementById("geonames-file-input");
+const backupDownloadBtn = document.getElementById("backup-download-btn");
+const backupRestoreBtn = document.getElementById("backup-restore-btn");
+const backupFileInput = document.getElementById("backup-file-input");
+const backupStatusText = document.getElementById("backup-status");
 
-const logInstallEvent = (message) => {
+const logAppEvent = (message) => {
   if (!logList) return;
   const li = document.createElement("li");
   const now = new Date();
@@ -57,8 +61,18 @@ const logInstallEvent = (message) => {
   li.textContent = `[${timestamp}] ${message}`;
   logList.appendChild(li);
   logSection?.removeAttribute("hidden");
+  if (logSection instanceof HTMLDetailsElement) logSection.open = true;
   toggleLogBtn?.classList.add("notify");
 };
+
+if (typeof window !== "undefined") {
+  window.addEventListener("dalitrail:log", (event) => {
+    const message = event?.detail?.message;
+    if (typeof message === "string" && message.trim()) {
+      logAppEvent(message);
+    }
+  });
+}
 
 const installationWatchers = {
   promptTimer: null,
@@ -97,16 +111,16 @@ if (installSection) {
       ? "Checking install support..."
       : "Install requires HTTPS or localhost.";
   }
-  logInstallEvent("Install section initialized.");
-  logInstallEvent(isSecure ? "Secure origin confirmed." : "Insecure origin detected. Install prompt will be blocked.");
-  if (isIosDevice) logInstallEvent("Running on iOS; use Safari's Add to Home Screen instead of install prompt.");
+  logAppEvent("Install section initialized.");
+  logAppEvent(isSecure ? "Secure origin confirmed." : "Insecure origin detected. Install prompt will be blocked.");
+  if (isIosDevice) logAppEvent("Running on iOS; use Safari's Add to Home Screen instead of install prompt.");
   else if (isSecure) {
     installationWatchers.promptTimer = window.setTimeout(() => {
       if (!installationWatchers.promptReceived) {
-        logInstallEvent("Still waiting for install prompt event (no beforeinstallprompt yet).");
+        logAppEvent("Still waiting for install prompt event (no beforeinstallprompt yet).");
       }
     }, 8000);
-    logInstallEvent("Waiting for service worker registration and install prompt readiness...");
+    logAppEvent("Waiting for service worker registration and install prompt readiness...");
   }
 }
 
@@ -141,12 +155,14 @@ const loadInitialView = () => {
 const showLog = () => {
   if (!logSection || !toggleLogBtn) return;
   logSection.hidden = false;
+  if (logSection instanceof HTMLDetailsElement) logSection.open = true;
   toggleLogBtn.textContent = "Hide Log";
   toggleLogBtn.setAttribute("aria-expanded", "true");
 };
 const hideLog = () => {
   if (!logSection || !toggleLogBtn) return;
   logSection.hidden = true;
+  if (logSection instanceof HTMLDetailsElement) logSection.open = false;
   toggleLogBtn.textContent = "Show Log";
   toggleLogBtn.setAttribute("aria-expanded", "false");
   toggleLogBtn.classList.remove("notify");
@@ -155,6 +171,8 @@ const toggleLogVisibility = () => (logSection.hidden ? (toggleLogBtn.classList.r
 
 // ---------- GeoNames helpers ----------
 const GEONAMES_META_KEY = "dalitrail:geonames-meta";
+const BACKUP_VERSION = 1;
+const BACKUP_PREFIX = "dalitrail:";
 
 const loadGeonamesMeta = () => {
   try {
@@ -223,6 +241,86 @@ const cacheGeonamesBuffer = async (buffer) => {
   } catch (error) {
     console.warn("Unable to cache GeoNames data:", error);
     return { cached: false };
+  }
+};
+
+const gatherBackupItems = () => {
+  const items = {};
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (!key || !key.startsWith(BACKUP_PREFIX)) continue;
+    const value = localStorage.getItem(key);
+    if (value !== null) items[key] = value;
+  }
+  return items;
+};
+
+const updateBackupStatus = (message) => {
+  logAppEvent(`Backup: ${message}`);
+  if (!backupStatusText) return;
+  backupStatusText.hidden = false;
+  backupStatusText.textContent = message;
+};
+
+const handleBackupDownload = () => {
+  const items = gatherBackupItems();
+  const count = Object.keys(items).length;
+  if (count === 0) {
+    updateBackupStatus("Nothing to back up yet. Save a location or note first.");
+    return;
+  }
+
+  const payload = {
+    version: BACKUP_VERSION,
+    exportedAt: new Date().toISOString(),
+    itemCount: count,
+    items,
+  };
+
+  try {
+    const json = JSON.stringify(payload, null, 2);
+    const encoded = new TextEncoder().encode(json);
+    const fileName = `dalitrail-backup-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    offerDownloadCopy(encoded, fileName);
+    updateBackupStatus(`Backup downloaded with ${count} item${count === 1 ? "" : "s"}. Keep it somewhere safe.`);
+  } catch (error) {
+    console.error("Backup download failed:", error);
+    updateBackupStatus(`Backup failed: ${error?.message || error}`);
+  }
+};
+
+const applyBackupItems = (items) => {
+  const restoredKeys = new Set(Object.keys(items));
+  const existingKeys = [];
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith(BACKUP_PREFIX)) existingKeys.push(key);
+  }
+  existingKeys.forEach((key) => {
+    if (!restoredKeys.has(key)) localStorage.removeItem(key);
+  });
+  for (const [key, value] of Object.entries(items)) {
+    localStorage.setItem(key, typeof value === "string" ? value : JSON.stringify(value));
+  }
+};
+
+const restoreBackupFromFile = async (file) => {
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    if (!payload || typeof payload !== "object" || typeof payload.items !== "object") {
+      throw new Error("Invalid backup format.");
+    }
+    if (payload.version && payload.version > BACKUP_VERSION) {
+      logAppEvent("Backup version is newer than supported, attempting restore anyway.");
+    }
+    applyBackupItems(payload.items || {});
+    const count = Object.keys(payload.items || {}).length;
+    updateBackupStatus(`Backup restored (${count} item${count === 1 ? "" : "s"}). Reloading...`);
+    window.setTimeout(() => window.location.reload(), 600);
+  } catch (error) {
+    console.error("Backup restore failed:", error);
+    updateBackupStatus(`Restore failed: ${error?.message || error}`);
   }
 };
 
@@ -405,7 +503,7 @@ const clearInstallPromptWait = () => {
 
 const promptInstall = async () => {
   if (!deferredInstallPrompt || !installBtn) return;
-  logInstallEvent("Install prompt requested.");
+  logAppEvent("Install prompt requested.");
   installClickRequested = false;
   clearInstallPromptWait();
   installBtn.disabled = true;
@@ -416,7 +514,7 @@ const promptInstall = async () => {
     fallbackTimer = window.setTimeout(() => {
       installBtn.disabled = false;
       installStatusText.textContent = `Install prompt might be blocked. ${getManualInstallInstructions()}`;
-      logInstallEvent("Install prompt fallback: no prompt appeared within timeout.");
+      logAppEvent("Install prompt fallback: no prompt appeared within timeout.");
     }, 5000);
   };
   try {
@@ -427,21 +525,21 @@ const promptInstall = async () => {
     if (!choice) {
       installBtn.disabled = false;
       installStatusText && (installStatusText.textContent = `Install prompt may not be supported here. ${getManualInstallInstructions()}`);
-      logInstallEvent("Install prompt resolved with no user choice.");
+      logAppEvent("Install prompt resolved with no user choice.");
       return;
     }
     if (choice.outcome === "accepted") {
       installSection.hidden = true;
-      logInstallEvent("User accepted install prompt.");
+      logAppEvent("User accepted install prompt.");
     } else {
       installBtn.disabled = false;
       installStatusText && (installStatusText.textContent = "Install was cancelled. You can try again anytime.");
-      logInstallEvent("User dismissed install prompt.");
+      logAppEvent("User dismissed install prompt.");
     }
   } catch {
     installBtn.disabled = false;
     installStatusText && (installStatusText.textContent = `Unable to open install prompt. ${getManualInstallInstructions()}`);
-    logInstallEvent("Install prompt threw an error.");
+    logAppEvent("Install prompt threw an error.");
   } finally {
     if (fallbackTimer) window.clearTimeout(fallbackTimer);
     deferredInstallPrompt = null;
@@ -512,6 +610,23 @@ historyViewBtn?.addEventListener("click", openSelectedLocations);
 historyShareBtn?.addEventListener("click", () => void shareSelectedLocations());
 historyDeleteBtn?.addEventListener("click", deleteSelectedLocations);
 
+backupDownloadBtn?.addEventListener("click", handleBackupDownload);
+backupRestoreBtn?.addEventListener("click", () => {
+  if (!backupFileInput) {
+    updateBackupStatus("Restore not supported on this device.");
+    return;
+  }
+  backupFileInput.click();
+});
+backupFileInput?.addEventListener("change", (event) => {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || !input.files || input.files.length === 0) return;
+  const file = input.files[0];
+  updateBackupStatus(`Restoring from ${file.name}...`);
+  void restoreBackupFromFile(file);
+  input.value = "";
+});
+
 window.addEventListener("dalitrail:request-search", (event) => {
   const entry = event.detail?.entry;
   showView("search");
@@ -525,10 +640,10 @@ backBtn?.addEventListener("click", () => {
 });
 
 installBtn?.addEventListener("click", async () => {
-  logInstallEvent("Install button clicked.");
+  logAppEvent("Install button clicked.");
   if (deferredInstallPrompt) return void promptInstall();
   if (isIosDevice) {
-    logInstallEvent("Install prompt not available on iOS; showing manual instructions.");
+    logAppEvent("Install prompt not available on iOS; showing manual instructions.");
     return alert(getManualInstallInstructions());
   }
   if (isAndroidDevice || isWindowsDevice) {
@@ -541,7 +656,7 @@ installBtn?.addEventListener("click", async () => {
       installBtn && (installBtn.disabled = false);
       installStatusText && (installStatusText.textContent = getManualInstallInstructions());
       installPromptWaitTimeoutId = null;
-      logInstallEvent("Install prompt did not appear; showing manual instructions.");
+      logAppEvent("Install prompt did not appear; showing manual instructions.");
     }, 4000);
     return;
   }
@@ -568,16 +683,16 @@ updateBtn?.addEventListener("click", async () => {
 // PWA: service worker + install prompt
 if ("serviceWorker" in navigator) {
   const registerServiceWorker = () => {
-    logInstallEvent("Registering service worker...");
+    logAppEvent("Registering service worker...");
     return navigator.serviceWorker
       .register("/service-worker.js", { scope: "/" })
       .then((registration) => {
-        logInstallEvent("Service worker registered.");
+        logAppEvent("Service worker registered.");
         swRegistration = registration;
         if (navigator.serviceWorker.controller) {
-          logInstallEvent("Service worker is controlling this page.");
+          logAppEvent("Service worker is controlling this page.");
         } else {
-          logInstallEvent("Awaiting service worker control (controller not yet set).");
+          logAppEvent("Awaiting service worker control (controller not yet set).");
         }
         installSection?.removeAttribute("hidden");
         if (installBtn) installBtn.disabled = false;
@@ -595,7 +710,7 @@ if ("serviceWorker" in navigator) {
       })
       .catch((error) => {
         console.log("SW registration failed:", error);
-        logInstallEvent(`Service worker registration failed: ${error?.message || error}`);
+        logAppEvent(`Service worker registration failed: ${error?.message || error}`);
         if (installBtn) installBtn.disabled = false;
         if (installStatusText) {
           installStatusText.textContent = `Unable to register service worker. ${getManualInstallInstructions()}`;
@@ -611,22 +726,22 @@ if ("serviceWorker" in navigator) {
 
   navigator.serviceWorker.ready
     .then((registration) => {
-      logInstallEvent("Service worker reported ready.");
+      logAppEvent("Service worker reported ready.");
       if (registration.active) {
-        logInstallEvent("Active service worker state: " + registration.active.state);
+        logAppEvent("Active service worker state: " + registration.active.state);
       }
     })
     .catch((error) => {
-      logInstallEvent(`Service worker ready() rejected: ${error?.message || error}`);
+      logAppEvent(`Service worker ready() rejected: ${error?.message || error}`);
     });
 
   window.setTimeout(() => {
     if (!navigator.serviceWorker.controller) {
-      logInstallEvent("Still no service worker controller after waiting; try closing other tabs for trail.dalifin.com and reload.");
+      logAppEvent("Still no service worker controller after waiting; try closing other tabs for trail.dalifin.com and reload.");
     }
   }, 10000);
 } else {
-  logInstallEvent("Service worker unsupported in this browser.");
+  logAppEvent("Service worker unsupported in this browser.");
 }
 
 window.addEventListener("beforeinstallprompt", (event) => {
@@ -645,14 +760,14 @@ window.addEventListener("beforeinstallprompt", (event) => {
   if (installClickRequested) void promptInstall();
   installClickRequested = false;
   console.log("Install prompt ready.");
-  logInstallEvent("beforeinstallprompt event captured; install ready.");
+  logAppEvent("beforeinstallprompt event captured; install ready.");
 });
 
 window.addEventListener("appinstalled", () => {
   deferredInstallPrompt = null;
   installSection && (installSection.hidden = true);
   installStatusText && (installStatusText.textContent = "DaliTrail is already installed on this device.");
-  logInstallEvent("App installed successfully.");
+  logAppEvent("App installed successfully.");
 });
 
 // Geolocation permission banner
@@ -689,7 +804,7 @@ let _reloading = false;
 navigator.serviceWorker?.addEventListener("controllerchange", () => {
   if (_reloading) return;
   _reloading = true;
-  logInstallEvent("Service worker controller changed; reloading to apply new version.");
+  logAppEvent("Service worker controller changed; reloading to apply new version.");
   if (document.visibilityState === "visible") {
     window.location.reload();
   } else {
