@@ -16,6 +16,7 @@ BASE_DIR = Path(__file__).parent.resolve()
 DEFAULT_DATASET_NAME = "geonames-lite-us-wa.db"
 DEFAULT_DATASET_PATHS: tuple[Path, ...] = (
     BASE_DIR / "data" / DEFAULT_DATASET_NAME,
+    BASE_DIR / "assets" / "data" / DEFAULT_DATASET_NAME,
     BASE_DIR.parent / "DaliTrailData" / "data" / DEFAULT_DATASET_NAME,
 )
 DATASET_CATALOG_PATH = BASE_DIR / "configs" / "geonames-datasets.json"

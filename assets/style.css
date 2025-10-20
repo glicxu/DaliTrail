@@ -730,19 +730,38 @@ textarea::placeholder {
     gap: 0.4rem;
 }
 
+.event-editor label {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: rgba(245, 245, 245, 0.92);
+}
+
 .event-editor input,
 .event-editor textarea {
     width: 100%;
     padding: 0.6rem 0.75rem;
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    background: rgba(0, 0, 0, 0.25);
-    color: inherit;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: #050a16;
+    color: #f5f5f5;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .event-editor textarea {
     min-height: 90px;
     resize: vertical;
+}
+
+.event-editor input::placeholder,
+.event-editor textarea::placeholder {
+    color: rgba(245, 245, 245, 0.48);
+}
+
+.event-editor input:focus,
+.event-editor textarea:focus {
+    outline: none;
+    border-color: rgba(66, 153, 225, 0.75);
+    box-shadow: 0 0 0 2px rgba(66, 153, 225, 0.25);
 }
 
 .event-editor-actions {
@@ -764,10 +783,11 @@ textarea::placeholder {
 }
 
 .event-card {
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 12px;
     padding: 0.9rem;
-    background: rgba(0, 0, 0, 0.22);
+    background: rgba(5, 10, 22, 0.82);
+    color: #f5f5f5;
     display: grid;
     gap: 0.6rem;
 }
@@ -777,12 +797,13 @@ textarea::placeholder {
     flex-wrap: wrap;
     gap: 0.5rem 1rem;
     font-size: 0.9rem;
-    opacity: 0.85;
+    color: rgba(245, 245, 245, 0.75);
 }
 
 .event-card .event-note {
     font-size: 1rem;
-    line-height: 1.4;
+    line-height: 1.45;
+    color: rgba(245, 245, 245, 0.92);
 }
 
 .event-card .event-actions {
@@ -792,17 +813,34 @@ textarea::placeholder {
 }
 
 @media (prefers-color-scheme: light) {
+    .event-editor label {
+        color: rgba(15, 23, 42, 0.76);
+    }
+
     .event-editor input,
     .event-editor textarea {
-        background: rgba(255, 255, 255, 0.92);
+        background: rgba(255, 255, 255, 0.95);
         color: #0f172a;
-        border-color: rgba(15, 23, 42, 0.1);
+        border-color: rgba(15, 23, 42, 0.12);
     }
 
     .event-card {
-        background: rgba(255, 255, 255, 0.92);
+        background: rgba(255, 255, 255, 0.94);
         color: #0f172a;
         border-color: rgba(15, 23, 42, 0.08);
+    }
+
+    .event-editor input::placeholder,
+    .event-editor textarea::placeholder {
+        color: rgba(15, 23, 42, 0.5);
+    }
+
+    .event-card .event-meta {
+        color: rgba(15, 23, 42, 0.6);
+    }
+
+    .event-card .event-note {
+        color: rgba(15, 23, 42, 0.88);
     }
 }
 

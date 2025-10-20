@@ -310,6 +310,51 @@ const refreshGeonamesStatus = () => {
   setGeonamesStatus(describeGeonamesMeta(meta));
 };
 
+const handleGeonamesFileSelection = async (file) => {
+  if (!file) return;
+  try {
+    const declaredSize = Number.isFinite(file.size) ? file.size : null;
+    const sizeLabel = declaredSize != null ? formatBytes(declaredSize) : "unknown size";
+    setGeonamesStatus(`Loading ${file.name}...`);
+    logAppEvent(`GeoNames file selected: ${file.name} (${sizeLabel})`);
+
+    const buffer = await file.arrayBuffer();
+    if (!buffer.byteLength) {
+      setGeonamesStatus("Selected file is empty.");
+      return;
+    }
+
+    const bytes = new Uint8Array(buffer);
+    const storedBytes = storeGeonamesInline(bytes);
+    if (!storedBytes) {
+      setGeonamesStatus("Unable to cache the selected dataset locally.");
+      return;
+    }
+
+    const meta = {
+      id: `user-file:${file.name}`,
+      label: file.name,
+      fileName: file.name,
+      size: bytes.byteLength,
+      source: "user-file",
+      inlineBytes: storedBytes,
+      updatedAt: Date.now(),
+      importedAt: new Date().toISOString(),
+      downloadedAt: new Date().toISOString(),
+      requiresPicker: false,
+    };
+
+    saveGeonamesMeta(meta);
+    setGeonamesStatus(describeGeonamesMeta(meta));
+    logAppEvent(`GeoNames dataset connected from file: ${file.name}`);
+    window.dispatchEvent(new CustomEvent("dalitrail:geonames-updated"));
+  } catch (error) {
+    console.error("Unable to load GeoNames file:", error);
+    setGeonamesStatus(`Unable to load GeoNames file: ${error?.message || error}`);
+    clearGeonamesInline();
+  }
+};
+
 const ensureGeonamesDatasetList = async () => {
   if (geonamesDatasetsFetched) return geonamesDatasets;
   try {
@@ -496,6 +541,20 @@ geonamesDownloadConfirm?.addEventListener("click", async () => {
     geonamesDownloadConfirm.disabled = false;
     geonamesDownloadConfirm.textContent = "Download & Connect";
   }
+});
+
+geonamesConnectBtn?.addEventListener("click", () => {
+  if (!geonamesFileInput) return;
+  geonamesFileInput.value = "";
+  geonamesFileInput.click();
+  logAppEvent("Prompted for GeoNames file picker.");
+});
+
+geonamesFileInput?.addEventListener("change", () => {
+  const file = geonamesFileInput.files?.[0] || null;
+  if (!file) return;
+  void handleGeonamesFileSelection(file);
+  geonamesFileInput.value = "";
 });
 
 openLocationViewBtn?.addEventListener("click", () => {
