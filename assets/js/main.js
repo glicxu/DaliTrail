@@ -672,9 +672,14 @@ backupFileInput?.addEventListener("change", (event) => {
 window.addEventListener("dalitrail:prompt-geonames", (event) => {
   const reason = event?.detail?.reason || "GeoNames database required.";
   logAppEvent(`GeoNames prompt: ${reason}`);
+  showView("about");
   if (geonamesDetails instanceof HTMLDetailsElement) geonamesDetails.open = true;
-  updateGeonamesStatus(`${reason} Select a GeoNames database.`);
-  void handleGeonamesConnect();
+  updateGeonamesStatus(
+    `${reason} Use the buttons below to download or select a GeoNames database.`
+  );
+  window.alert(
+    `${reason}\n\nOpen About ▸ GeoNames Data and download or select a database to continue using Search.`
+  );
 });
 
 window.addEventListener("dalitrail:request-search", (event) => {
