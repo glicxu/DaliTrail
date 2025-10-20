@@ -733,7 +733,7 @@ textarea::placeholder {
 .event-editor label {
     font-weight: 600;
     font-size: 0.95rem;
-    color: rgba(245, 245, 245, 0.92);
+    color: #ffffff;
 }
 
 .event-editor input,
@@ -743,8 +743,35 @@ textarea::placeholder {
     border-radius: 10px;
     border: 1px solid rgba(255, 255, 255, 0.18);
     background: #050a16;
-    color: #f5f5f5;
+    color: #ffffff;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    appearance: none;
+}
+
+.event-editor input[type="datetime-local"] {
+    color-scheme: dark;
+}
+
+.event-editor input::-webkit-datetime-edit,
+.event-editor input::-webkit-datetime-edit-fields-wrapper,
+.event-editor input::-webkit-datetime-edit-text,
+.event-editor input::-webkit-datetime-edit-month-field,
+.event-editor input::-webkit-datetime-edit-day-field,
+.event-editor input::-webkit-datetime-edit-year-field,
+.event-editor input::-webkit-datetime-edit-hour-field,
+.event-editor input::-webkit-datetime-edit-minute-field,
+.event-editor input::-webkit-datetime-edit-ampm-field {
+    color: #ffffff;
+}
+
+.event-editor input::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+}
+
+.event-editor input:-webkit-autofill,
+.event-editor textarea:-webkit-autofill {
+    -webkit-text-fill-color: #ffffff;
+    transition: background-color 10000s ease-in-out 0s;
 }
 
 .event-editor textarea {
@@ -754,7 +781,19 @@ textarea::placeholder {
 
 .event-editor input::placeholder,
 .event-editor textarea::placeholder {
-    color: rgba(245, 245, 245, 0.48);
+    color: rgba(255, 255, 255, 0.6);
+}
+.event-editor input::-webkit-input-placeholder,
+.event-editor textarea::-webkit-input-placeholder {
+    color: rgba(255, 255, 255, 0.6);
+}
+.event-editor input::-moz-placeholder,
+.event-editor textarea::-moz-placeholder {
+    color: rgba(255, 255, 255, 0.6);
+}
+.event-editor input:-ms-input-placeholder,
+.event-editor textarea:-ms-input-placeholder {
+    color: rgba(255, 255, 255, 0.6);
 }
 
 .event-editor input:focus,
@@ -804,6 +843,22 @@ textarea::placeholder {
     font-size: 1rem;
     line-height: 1.45;
     color: rgba(245, 245, 245, 0.92);
+}
+
+.event-view label {
+    color: #ffffff !important;
+}
+
+.event-view input,
+.event-view textarea {
+    background-color: #050a16 !important;
+    color: #ffffff !important;
+    border-color: rgba(255, 255, 255, 0.22) !important;
+}
+
+.event-view input::placeholder,
+.event-view textarea::placeholder {
+    color: rgba(255, 255, 255, 0.65) !important;
 }
 
 .event-card .event-actions {
