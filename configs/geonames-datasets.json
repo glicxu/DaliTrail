@@ -1,0 +1,20 @@
+{
+  "datasets": [
+    {
+      "id": "us-wa",
+      "label": "United States - Washington State",
+      "description": "Cities, trails, and outdoor features for Washington.",
+      "source": "active",
+      "url": "/datasets/geonames-lite-us-wa.db"
+    },
+    {
+      "id": "sample",
+      "label": "Sample Dataset (Tiny)",
+      "description": "Mini dataset for testing search locally.",
+      "source": "static",
+      "path": "assets/data/geonames-sample.db",
+      "file_name": "geonames-sample.db",
+      "url": "/assets/data/geonames-sample.db"
+    }
+  ]
+}

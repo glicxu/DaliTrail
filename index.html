@@ -20,6 +20,7 @@
   <link rel="modulepreload" href="/assets/js/search.js"/>
   <link rel="modulepreload" href="/assets/js/main.js"/>,
   <link rel="modulepreload" href="/assets/js/notes.js"/>,
+  <link rel="modulepreload" href="/assets/js/events.js"/>,
 </head>
 <body>
   <main class="app" data-view="home">
@@ -43,6 +44,7 @@
       <div class="home-actions">
         <button class="btn btn-primary" id="open-location-view-btn">Location</button>
 
+        <button class="btn btn-primary" id="open-event-view-btn">Event</button>
         <button class="btn btn-primary" id="open-notes-view-btn">Note</button>
       </div>
       <button class="icon-btn about-btn" id="open-about-view-btn" aria-label="About DaliTrail">
@@ -98,6 +100,12 @@
             </button>
           </div>
           <p class="status-text geonames-status" id="geonames-status" role="status">No GeoNames database connected yet.</p>
+          <div class="geonames-download-panel" id="geonames-download-panel" hidden>
+            <label for="geonames-download-select">Choose a region</label>
+            <select id="geonames-download-select"></select>
+            <button class="btn btn-primary" type="button" id="geonames-download-confirm">Download &amp; Connect</button>
+            <p class="status-text" id="geonames-download-status">Select a dataset to begin.</p>
+          </div>
           <input type="file" id="geonames-file-input" accept=".db,.sqlite,application/octet-stream" hidden/>
         </div>
       </details>
@@ -207,6 +215,13 @@
         <p class="status-text" id="search-results-status">Run a search to see suggested places around your location.</p>
         <ul id="search-results-list" class="search-results-list"></ul>
       </section>
+
+      <div class="search-results-actions history-actions" id="search-results-actions" hidden>
+        <button class="btn btn-primary" type="button" id="search-results-view-btn" disabled>View on Map</button>
+        <button class="btn btn-outline" type="button" id="search-results-save-btn" disabled>Save to Locations</button>
+        <button class="btn btn-outline" type="button" id="search-results-share-btn" disabled>Share</button>
+        <button class="btn btn-outline" type="button" id="search-results-sketch-btn" disabled>Sketch Map</button>
+      </div>
     </section>
 
     <section class="view location-history-view" data-view="location-history" hidden>
@@ -222,6 +237,29 @@
         <button class="btn btn-danger" id="history-delete-btn" disabled>Delete</button>
         <!-- Walk / Sketch are injected by JS -->
       </div>
+    </section>
+
+    <section class="view event-view" data-view="events" hidden>
+      <h2>Events</h2>
+      <p class="section-copy">Plan upcoming outings and share them with your calendar.</p>
+
+      <form class="event-editor" id="event-form">
+        <div class="form-row">
+          <label for="event-datetime">Date & time</label>
+          <input type="datetime-local" id="event-datetime" required/>
+        </div>
+        <div class="form-row">
+          <label for="event-note">Event note</label>
+          <textarea id="event-note" rows="3" placeholder="Add details, meeting spot, or reminders"></textarea>
+        </div>
+        <div class="event-editor-actions">
+          <button class="btn btn-primary" type="submit" id="event-save-btn">Add Event</button>
+          <button class="btn btn-outline" type="button" id="event-cancel-edit-btn" hidden>Cancel Edit</button>
+        </div>
+      </form>
+
+      <ul class="events-list" id="events-list"></ul>
+      <p class="status-text" id="events-status">No events scheduled yet.</p>
     </section>
 
     <section class="view notes-view" data-view="notes" hidden>
@@ -240,3 +278,4 @@
   <script type="module" src="/assets/js/main.js"></script>
 </body>
 </html>
+

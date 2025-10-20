@@ -1,6 +1,7 @@
 // /assets/js/search.js
 // Handles the Search view that surfaces nearby places of interest for a saved location using a local GeoNames dataset.
 
+import { addLocationsFromSearch } from "./location.js";
 import { formatTimestamp } from "./utils.js";
 
 const searchView = document.querySelector('.search-view[data-view="search"]');
@@ -17,6 +18,11 @@ const limitInput = document.getElementById("search-limit");
 const resultsSection = document.getElementById("search-results-section");
 const resultsStatusText = document.getElementById("search-results-status");
 const resultsList = document.getElementById("search-results-list");
+const searchActionBar = document.getElementById("search-results-actions");
+const searchViewBtn = document.getElementById("search-results-view-btn");
+const searchSaveBtn = document.getElementById("search-results-save-btn");
+const searchShareBtn = document.getElementById("search-results-share-btn");
+const searchSketchBtn = document.getElementById("search-results-sketch-btn");
 
 const GEONAMES_META_KEY = "dalitrail:geonames-meta";
 const GEONAMES_INLINE_KEY = "dalitrail:geonames-inline";
@@ -45,11 +51,26 @@ const CATEGORY_FEATURES = {
 };
 
 const CITY_FEATURE_CODES = ["P.PPL", "P.PPLA", "P.PPLA2", "P.PPLL"];
+const CITY_CODE_PRIORITY = {
+  "P.PPLC": 0,
+  "P.PPLG": 0,
+  "P.PPLA": 1,
+  "P.PPLA2": 1,
+  "P.PPLA3": 1,
+  "P.PPLA4": 1,
+  "P.PPL": 2,
+  "P.PPLL": 3,
+  "P.PPLX": 4,
+};
+const DEFAULT_CITY_PRIORITY = 5;
+const MIN_PRIMARY_RADIUS_KM = 15;
 
 let currentEntry = null;
 let lastDatasetPromptTs = 0;
 let sqlLibraryPromise = null;
 let cachedDbContext = null;
+const searchResultsById = new Map();
+const selectedResultIds = new Set();
 
 const logSearchEvent = (message) => {
   window.dispatchEvent(
@@ -101,6 +122,212 @@ const formatBytes = (bytes) => {
   return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unitIndex]}`;
 };
 
+const resultIdForFeature = (feature) => {
+  if (!feature) return "";
+  if (feature.geoname_id !== undefined && feature.geoname_id !== null) {
+    return String(feature.geoname_id);
+  }
+  const lat = Number(feature.latitude ?? feature.lat ?? 0);
+  const lng = Number(feature.longitude ?? feature.lng ?? 0);
+  return `${lat.toFixed(6)}:${lng.toFixed(6)}:${feature.name ?? ""}`;
+};
+
+const getSelectedSearchResults = () =>
+  Array.from(selectedResultIds)
+    .map((id) => searchResultsById.get(id))
+    .filter(Boolean);
+
+const updateSearchActionState = () => {
+  const count = selectedResultIds.size;
+  if (searchActionBar) {
+    searchActionBar.hidden = searchResultsById.size === 0;
+  }
+  if (searchViewBtn) searchViewBtn.disabled = count === 0;
+  if (searchSaveBtn) searchSaveBtn.disabled = count === 0;
+  const hasEntry = !!currentEntry;
+  if (searchShareBtn) searchShareBtn.disabled = count === 0;
+  if (searchSketchBtn) searchSketchBtn.disabled = count === 0 || !hasEntry;
+};
+
+const clearSearchSelection = () => {
+  selectedResultIds.clear();
+  if (resultsList) {
+    resultsList.querySelectorAll(".search-result-item").forEach((item) => item.classList.remove("selected"));
+    resultsList.querySelectorAll(".search-result-checkbox").forEach((input) => {
+      if (input instanceof HTMLInputElement) input.checked = false;
+    });
+  }
+  updateSearchActionState();
+};
+
+const sanitizeSearchFeature = (feature) => {
+  if (!feature) return null;
+  const latitude = Number.parseFloat(feature.latitude ?? feature.lat ?? "");
+  const longitude = Number.parseFloat(feature.longitude ?? feature.lng ?? "");
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+
+  const distanceValue = Number.parseFloat(feature.distance_km ?? feature.distance ?? "");
+  const elevationValue = Number.parseFloat(feature.elevation ?? feature.altitude ?? "");
+
+  return {
+    ...feature,
+    latitude,
+    longitude,
+    distance_km: Number.isFinite(distanceValue) ? distanceValue : null,
+    elevation: Number.isFinite(elevationValue) ? elevationValue : null,
+  };
+};
+
+const openSelectedSearchResults = () => {
+  const selected = getSelectedSearchResults();
+  if (!selected.length) return;
+
+  const coords = selected
+    .map((feature) => {
+      const lat = Number(feature.latitude ?? feature.lat);
+      const lng = Number(feature.longitude ?? feature.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      return { lat, lng };
+    })
+    .filter(Boolean);
+
+  if (!coords.length) return;
+
+  logSearchEvent(`Opening ${coords.length} selected search result(s) in Maps.`);
+
+  if (coords.length === 1) {
+    openInMaps(coords[0].lat, coords[0].lng);
+    return;
+  }
+
+  const fmt = (point) => `${point.lat.toFixed(6)},${point.lng.toFixed(6)}`;
+  const origin = coords[0];
+  const destination = coords[coords.length - 1];
+  const waypoints = coords.slice(1, -1);
+
+  let url = `https://www.google.com/maps/dir/?api=1&travelmode=walking&origin=${encodeURIComponent(fmt(origin))}&destination=${encodeURIComponent(fmt(destination))}`;
+  if (waypoints.length) {
+    url += `&waypoints=${encodeURIComponent(waypoints.map(fmt).join("|"))}`;
+  }
+  window.open(url, "_blank", "noopener");
+};
+
+const saveSelectedSearchResults = () => {
+  const selected = getSelectedSearchResults();
+  if (!selected.length) return;
+  logSearchEvent(`Saving ${selected.length} selected search result(s) to saved locations.`);
+  const outcome = addLocationsFromSearch(selected);
+  const message =
+    outcome.added > 0
+      ? `Added ${outcome.added} result${outcome.added === 1 ? "" : "s"} to Saved Locations.`
+      : "Selected results are already in Saved Locations.";
+  setResultsStatus(message);
+};
+
+const shareSelectedSearchResults = async () => {
+  const selected = getSelectedSearchResults();
+  if (!selected.length) return;
+
+  logSearchEvent(`Sharing ${selected.length} selected search result(s).`);
+
+  const lines = selected.map((feature, index) => {
+    const parts = [];
+    const label = feature.name ? `${feature.name}` : "Unnamed place";
+    parts.push(`#${index + 1} ${label}`);
+    if (Number.isFinite(feature.distance_km)) {
+      parts.push(`Distance: ${Number(feature.distance_km).toFixed(2)} km`);
+    }
+    const typeParts = [];
+    if (feature.feature_class) typeParts.push(feature.feature_class);
+    if (feature.feature_code) typeParts.push(feature.feature_code);
+    if (typeParts.length) parts.push(`Feature: ${typeParts.join(".")}`);
+    parts.push(`Lat: ${Number(feature.latitude).toFixed(6)}`);
+    parts.push(`Lng: ${Number(feature.longitude).toFixed(6)}`);
+    if (Number.isFinite(feature.elevation)) {
+      parts.push(`Elevation: ${Number(feature.elevation).toFixed(0)} m`);
+    }
+    const locality = [];
+    if (feature.admin1) locality.push(STATE_NAMES[feature.admin1] || feature.admin1);
+    if (feature.country) locality.push(COUNTRY_NAMES[feature.country] || feature.country);
+    if (locality.length) parts.push(`Region: ${locality.join(", ")}`);
+    return parts.join("\n");
+  });
+
+  const sharePayload = {
+    title: "Nearby places",
+    text: `Nearby places from DaliTrail:\n\n${lines.join("\n\n")}\nSent via DaliTrail.`,
+  };
+
+  if (navigator.share) {
+    try {
+      await navigator.share(sharePayload);
+      setResultsStatus("Shared selected places successfully.");
+      return;
+    } catch (error) {
+      if (error && error.name === "AbortError") return;
+      setResultsStatus(`Share failed: ${error.message || error}`);
+    }
+  }
+
+  const first = selected[0];
+  const lat = Number(first.latitude ?? first.lat);
+  const lng = Number(first.longitude ?? first.lng);
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    openInMaps(lat, lng);
+    setResultsStatus("Sharing not supported on this device. Opened the first result on the map instead.");
+  } else {
+    setResultsStatus("Sharing not supported on this device.");
+  }
+};
+
+const openSketchForSelectedResults = async () => {
+  const selected = getSelectedSearchResults();
+  if (!selected.length || !currentEntry) return;
+
+  logSearchEvent(`Opening sketch map for ${selected.length} nearby place(s).`);
+
+  const originPoint = {
+    lat: currentEntry.lat,
+    lng: currentEntry.lng,
+    note: currentEntry.note ? currentEntry.note : `Saved ${formatTimestamp(currentEntry.timestamp)}`,
+    timestamp: currentEntry.timestamp,
+  };
+
+  const ensureDistanceKm = (feature) => {
+    if (Number.isFinite(feature.distance_km)) return Number(feature.distance_km);
+    const meters = haversineKm(currentEntry.lat, currentEntry.lng, Number(feature.latitude), Number(feature.longitude)) * 1000;
+    return meters / 1000;
+  };
+
+  const sorted = [...selected].sort((a, b) => ensureDistanceKm(a) - ensureDistanceKm(b));
+
+  const points = [originPoint, ...sorted.map((feature) => ({
+    lat: Number(feature.latitude),
+    lng: Number(feature.longitude),
+    note: feature.name || "Nearby place",
+    timestamp: Date.now(),
+  }))];
+
+  const connections = sorted.map((_, idx) => ({ from: 0, to: idx + 1 }));
+  const units = sorted.some((feature) => ensureDistanceKm(feature) >= 1) ? "km" : "m";
+
+  try {
+    const { openSketchMap } = await import("/assets/js/sketch-map.js");
+    if (typeof openSketchMap !== "function") throw new Error("Sketch map unavailable.");
+    openSketchMap({
+      points,
+      connections,
+      originIndex: 0,
+      distanceMode: "origin",
+      units,
+      labelDistance: true,
+    });
+  } catch (error) {
+    console.error("Unable to open sketch map:", error);
+    setResultsStatus("Unable to open sketch map for selected results.");
+  }
+};
+
 const showLocalDatasetMeta = (meta) => {
   if (!meta) return;
   const parts = [];
@@ -145,11 +372,15 @@ const setFormEnabled = (enabled) => {
     }
   });
   if (searchActionsSection) searchActionsSection.hidden = !enabled;
+  if (searchActionBar) searchActionBar.hidden = !enabled || searchResultsById.size === 0;
+  if (!enabled) clearSearchSelection();
 };
 
 const resetResults = (message) => {
   if (resultsList) resultsList.innerHTML = "";
   if (resultsSection) resultsSection.hidden = false;
+  searchResultsById.clear();
+  clearSearchSelection();
   setResultsStatus(message);
 };
 
@@ -211,6 +442,46 @@ const extractContext = (feature) => {
     countryCode,
     countryName: countryCode ? COUNTRY_NAMES[countryCode] || null : null,
   };
+};
+
+const getCombinedFeatureCode = (feature) => {
+  if (!feature) return "";
+  const cls = feature.feature_class || "";
+  const code = feature.feature_code || "";
+  if (!cls && !code) return "";
+  if (!cls) return code;
+  if (!code) return cls;
+  return `${cls}.${code}`;
+};
+
+const getCityPriority = (feature) => {
+  const combined = getCombinedFeatureCode(feature);
+  return CITY_CODE_PRIORITY[combined] ?? DEFAULT_CITY_PRIORITY;
+};
+
+const pickBestCityCandidate = (features, entry) => {
+  if (!features || !features.length) return null;
+  const withinPrimaryRadius = features.filter(
+    (feature) => Number(feature.distance_km) <= MIN_PRIMARY_RADIUS_KM
+  );
+  const pool = withinPrimaryRadius.length ? withinPrimaryRadius : features;
+  const ranked = pool
+    .map((feature) => ({
+      feature,
+      priority: getCityPriority(feature),
+      population: Number.isFinite(Number(feature.population))
+        ? Number(feature.population)
+        : 0,
+      distance: Number.isFinite(Number(feature.distance_km))
+        ? Number(feature.distance_km)
+        : Number.POSITIVE_INFINITY,
+    }))
+    .sort((a, b) => {
+      if (a.priority !== b.priority) return a.priority - b.priority;
+      if (a.population !== b.population) return b.population - a.population;
+      return a.distance - b.distance;
+    });
+  return ranked[0]?.feature || null;
 };
 
 const handleDatasetUnavailable = (message) => {
@@ -438,11 +709,11 @@ const lookupLocationContext = async (entry) => {
       lat: entry.lat,
       lng: entry.lng,
       radiusKm: 25,
-      limit: 1,
+      limit: 12,
       featureCodes: CITY_FEATURE_CODES,
     });
     applyDatasetMeta(data);
-    const feature = data.features?.[0] || null;
+    const feature = pickBestCityCandidate(data.features || [], entry);
     const context = extractContext(feature);
     if (context?.city) {
       const suffix = context.stateName ? `, ${context.stateName}` : "";
@@ -465,34 +736,106 @@ const lookupLocationContext = async (entry) => {
 
 const renderResults = (features = []) => {
   if (!resultsList) return;
+  if (resultsSection) resultsSection.hidden = false;
   resultsList.innerHTML = "";
-  if (!features.length) {
-    resetResults("No places found within the selected radius.");
+  searchResultsById.clear();
+  clearSearchSelection();
+
+  if (!Array.isArray(features) || !features.length) {
+    setResultsStatus("No places found within the selected radius.");
+    updateSearchActionState();
     return;
   }
 
+  const seenIds = new Set();
   const fragment = document.createDocumentFragment();
-  features.forEach((feature) => {
+
+  features.forEach((rawFeature) => {
+    const feature = sanitizeSearchFeature(rawFeature);
+    if (!feature) return;
+    const id = resultIdForFeature(feature);
+    if (!id || seenIds.has(id)) return;
+    seenIds.add(id);
+    searchResultsById.set(id, feature);
+
     const item = document.createElement("li");
     item.className = "search-result-item";
-    item.innerHTML = `
-      <div class="search-result-header">
-        <strong>${feature.name}</strong>
-        <span>${feature.distance_km.toFixed(2)} km</span>
-      </div>
-      <div class="search-result-meta">
-        <span>Type: ${feature.feature_code || feature.feature_class || "Unknown"}</span>
-        <span>Coordinates: ${formatDisplayNumber(feature.latitude)}, ${formatDisplayNumber(feature.longitude)}</span>
-      </div>
-      <div class="search-result-actions">
-        <button class="btn btn-outline" type="button" data-role="view-map" data-lat="${feature.latitude}" data-lng="${feature.longitude}">View on Map</button>
-      </div>
-    `;
+    item.dataset.id = id;
+
+    const row = document.createElement("div");
+    row.className = "search-result";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "search-result-checkbox";
+    checkbox.value = id;
+    row.appendChild(checkbox);
+
+    const content = document.createElement("div");
+    content.className = "search-result-content";
+
+    const header = document.createElement("div");
+    header.className = "search-result-header";
+
+    const nameElement = document.createElement("strong");
+    nameElement.textContent = feature.name || "Unnamed place";
+    header.appendChild(nameElement);
+
+    const distanceElement = document.createElement("span");
+    if (Number.isFinite(feature.distance_km)) {
+      distanceElement.textContent = `${Number(feature.distance_km).toFixed(2)} km`;
+    } else {
+      distanceElement.textContent = "—";
+    }
+    header.appendChild(distanceElement);
+    content.appendChild(header);
+
+    const meta = document.createElement("div");
+    meta.className = "search-result-meta";
+
+    const typeSpan = document.createElement("span");
+    const typeParts = [];
+    if (feature.feature_class) typeParts.push(feature.feature_class);
+    if (feature.feature_code) typeParts.push(feature.feature_code);
+    typeSpan.textContent = `Type: ${typeParts.length ? typeParts.join(".") : "Unknown"}`;
+    meta.appendChild(typeSpan);
+
+    const coordinateSpan = document.createElement("span");
+    coordinateSpan.textContent = `Lat: ${formatDisplayNumber(feature.latitude)}, Lng: ${formatDisplayNumber(feature.longitude)}`;
+    meta.appendChild(coordinateSpan);
+
+    if (Number.isFinite(feature.elevation)) {
+      const elevationSpan = document.createElement("span");
+      elevationSpan.textContent = `Elevation: ${Number(feature.elevation).toFixed(0)} m`;
+      meta.appendChild(elevationSpan);
+    }
+
+    const localityParts = [];
+    if (feature.admin1) localityParts.push(STATE_NAMES[feature.admin1] || feature.admin1);
+    if (feature.country) localityParts.push(COUNTRY_NAMES[feature.country] || feature.country);
+    if (localityParts.length) {
+      const localitySpan = document.createElement("span");
+      localitySpan.textContent = localityParts.join(", ");
+      meta.appendChild(localitySpan);
+    }
+
+    content.appendChild(meta);
+    row.appendChild(content);
+    item.appendChild(row);
     fragment.appendChild(item);
   });
 
+  if (!fragment.childNodes.length) {
+    setResultsStatus("No places found within the selected radius.");
+    updateSearchActionState();
+    return;
+  }
+
   resultsList.appendChild(fragment);
-  setResultsStatus(`${features.length} place${features.length === 1 ? "" : "s"} found.`);
+  setResultsStatus(
+    `${searchResultsById.size} place${searchResultsById.size === 1 ? "" : "s"} found. Select the ones you want to use.`
+  );
+  updateSearchActionState();
 };
 
 const handleSearchSubmit = async (event) => {
@@ -530,15 +873,38 @@ const handleSearchSubmit = async (event) => {
   }
 };
 
+const handleResultsSelectionChange = (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement) || !target.classList.contains("search-result-checkbox")) {
+    return;
+  }
+
+  const id = target.value;
+  if (!id) return;
+
+  if (target.checked) selectedResultIds.add(id);
+  else selectedResultIds.delete(id);
+
+  const item = target.closest(".search-result-item");
+  if (item) item.classList.toggle("selected", target.checked);
+
+  updateSearchActionState();
+};
+
 const handleResultsClick = (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
-  const button = target.closest("button[data-role='view-map']");
-  if (!(button instanceof HTMLButtonElement)) return;
-  const lat = Number.parseFloat(button.dataset.lat || "");
-  const lng = Number.parseFloat(button.dataset.lng || "");
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-  openInMaps(lat, lng);
+
+  const checkbox = target.closest(".search-result-checkbox");
+  if (checkbox instanceof HTMLInputElement) return;
+
+  const item = target.closest(".search-result-item");
+  if (!item) return;
+
+  const input = item.querySelector(".search-result-checkbox");
+  if (!(input instanceof HTMLInputElement)) return;
+  input.checked = !input.checked;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
 };
 
 window.addEventListener("dalitrail:search-load", (event) => {
@@ -597,4 +963,9 @@ window.addEventListener("dalitrail:geonames-updated", () => {
 });
 
 searchForm?.addEventListener("submit", handleSearchSubmit);
+resultsList?.addEventListener("change", handleResultsSelectionChange);
 resultsList?.addEventListener("click", handleResultsClick);
+searchViewBtn?.addEventListener("click", openSelectedSearchResults);
+searchSaveBtn?.addEventListener("click", saveSelectedSearchResults);
+searchShareBtn?.addEventListener("click", () => { void shareSelectedSearchResults(); });
+searchSketchBtn?.addEventListener("click", () => { void openSketchForSelectedResults(); });

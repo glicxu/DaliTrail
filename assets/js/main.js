@@ -13,6 +13,7 @@ import {
 import { updateMetrics, restoreTrailState } from "./track.js";
 
 import "/assets/js/notes.js";
+import "/assets/js/events.js";
 import "/assets/js/search.js";
 
 
@@ -24,9 +25,11 @@ const aboutView = document.querySelector('.about-view[data-view="about"]');
 const locationView = document.querySelector('.location-view[data-view="location"]');
 const locationHistoryView = document.querySelector('.location-history-view[data-view="location-history"]');
 const notesView = document.querySelector('.notes-view[data-view="notes"]');
+const eventsView = document.querySelector('.event-view[data-view="events"]');
 const searchView = document.querySelector('.search-view[data-view="search"]');
 
 const openLocationViewBtn = document.getElementById("open-location-view-btn");
+const openEventViewBtn = document.getElementById("open-event-view-btn");
 const openNotesViewBtn = document.getElementById("open-notes-view-btn");
 const openAboutViewBtn = document.getElementById("open-about-view-btn");
 
@@ -48,6 +51,10 @@ const geonamesManageBtn = document.getElementById("geonames-manage-btn");
 const geonamesStatusText = document.getElementById("geonames-status");
 const geonamesFileInput = document.getElementById("geonames-file-input");
 const geonamesDetails = document.getElementById("geonames-section");
+const geonamesDownloadPanel = document.getElementById("geonames-download-panel");
+const geonamesDownloadSelect = document.getElementById("geonames-download-select");
+const geonamesDownloadStatus = document.getElementById("geonames-download-status");
+const geonamesDownloadConfirm = document.getElementById("geonames-download-confirm");
 const backupDownloadBtn = document.getElementById("backup-download-btn");
 const backupRestoreBtn = document.getElementById("backup-restore-btn");
 const backupFileInput = document.getElementById("backup-file-input");
@@ -126,7 +133,7 @@ if (installSection) {
 }
 
 // ---------- Views ----------
-const VIEWS = { home: homeView, about: aboutView, location: locationView, "location-history": locationHistoryView, notes: notesView, search: searchView };
+const VIEWS = { home: homeView, about: aboutView, location: locationView, "location-history": locationHistoryView, events: eventsView, notes: notesView, search: searchView };
 
 const showView = (view) => {
   if (!(view in VIEWS)) throw new Error(`Unknown view: ${view}`);
@@ -173,8 +180,32 @@ const toggleLogVisibility = () => (logSection.hidden ? (toggleLogBtn.classList.r
 // ---------- GeoNames helpers ----------
 const GEONAMES_META_KEY = "dalitrail:geonames-meta";
 const GEONAMES_INLINE_KEY = "dalitrail:geonames-inline";
+const FALLBACK_GEONAMES_DATASETS = [
+  {
+    id: "us-wa",
+    label: "United States - Washington State",
+    description: "Cities, trails, and outdoor features for Washington.",
+    url: "/datasets/geonames-lite-us-wa.db",
+    approx_size: "0.9 MB",
+    file_name: "geonames-lite-us-wa.db",
+    source: "download",
+  },
+  {
+    id: "sample",
+    label: "Sample Dataset (Tiny)",
+    description: "Mini dataset for testing search locally.",
+    url: "/assets/data/geonames-sample.db",
+    approx_size: "36 KB",
+    file_name: "geonames-sample.db",
+    source: "bundle",
+  },
+];
+const GEONAMES_DATASET_CACHE_KEY = "dalitrail:geonames-datasets";
 const BACKUP_VERSION = 1;
 const BACKUP_PREFIX = "dalitrail:";
+let geonamesDatasets = [];
+let geonamesDatasetOptionsLoaded = false;
+let geonamesDatasetsFetched = false;
 
 const loadGeonamesMeta = () => {
   try {
@@ -238,454 +269,281 @@ const clearGeonamesInline = () => {
   }
 };
 
-const updateGeonamesStatus = (overrideMessage) => {
-  if (!geonamesStatusText) return;
-  if (overrideMessage) {
-    geonamesStatusText.hidden = false;
-    geonamesStatusText.textContent = overrideMessage;
-    return;
-  }
-  const meta = loadGeonamesMeta();
-  if (!meta) {
-    geonamesStatusText.hidden = false;
-    geonamesStatusText.textContent = "No GeoNames database connected yet.";
-    return;
-  }
-  const updated = new Date(meta.updatedAt || Date.now());
-  const formattedDate = Number.isNaN(updated.getTime()) ? "unknown time" : updated.toLocaleString();
-  const sourceLabel = meta.source === "user-file" ? "Custom file" : "Downloaded from DaliTrail";
-  const cacheLabel = meta.cached ? "Cached for offline use." : "Available for this session.";
-  geonamesStatusText.hidden = false;
-  geonamesStatusText.textContent = `${sourceLabel} (${formatBytes(meta.size || 0)}). Updated ${formattedDate}. ${cacheLabel}`;
-};
-
-const cacheGeonamesBuffer = async (buffer) => {
-  if (!("storage" in navigator) || typeof navigator.storage?.getDirectory !== "function") {
-    return { cached: false };
-  }
+const loadCachedGeonamesDatasets = () => {
   try {
-    const root = await navigator.storage.getDirectory();
-    const appDir = await root.getDirectoryHandle("dalitrail", { create: true });
-    const fileHandle = await appDir.getFileHandle("geonames.db", { create: true });
-    const writable = await fileHandle.createWritable();
-    await writable.write(buffer);
-    await writable.close();
-    return { cached: true, path: "opfs://dalitrail/geonames.db" };
-  } catch (error) {
-    console.warn("Unable to cache GeoNames data:", error);
-    return { cached: false };
-  }
-};
-
-const gatherBackupItems = () => {
-  const items = {};
-  for (let i = 0; i < localStorage.length; i += 1) {
-    const key = localStorage.key(i);
-    if (!key || !key.startsWith(BACKUP_PREFIX)) continue;
-    const value = localStorage.getItem(key);
-    if (value !== null) items[key] = value;
-  }
-  return items;
-};
-
-const updateBackupStatus = (message) => {
-  logAppEvent(`Backup: ${message}`);
-  if (!backupStatusText) return;
-  backupStatusText.hidden = false;
-  backupStatusText.textContent = message;
-};
-
-const handleBackupDownload = () => {
-  const items = gatherBackupItems();
-  const count = Object.keys(items).length;
-  if (count === 0) {
-    updateBackupStatus("Nothing to back up yet. Save a location or note first.");
-    return;
-  }
-
-  const payload = {
-    version: BACKUP_VERSION,
-    exportedAt: new Date().toISOString(),
-    itemCount: count,
-    items,
-  };
-
-  try {
-    const json = JSON.stringify(payload, null, 2);
-    const encoded = new TextEncoder().encode(json);
-    const fileName = `dalitrail-backup-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
-    offerDownloadCopy(encoded, fileName);
-    updateBackupStatus(`Backup downloaded with ${count} item${count === 1 ? "" : "s"}. Keep it somewhere safe.`);
-  } catch (error) {
-    console.error("Backup download failed:", error);
-    updateBackupStatus(`Backup failed: ${error?.message || error}`);
-  }
-};
-
-const applyBackupItems = (items) => {
-  const restoredKeys = new Set(Object.keys(items));
-  const existingKeys = [];
-  for (let i = 0; i < localStorage.length; i += 1) {
-    const key = localStorage.key(i);
-    if (key && key.startsWith(BACKUP_PREFIX)) existingKeys.push(key);
-  }
-  existingKeys.forEach((key) => {
-    if (!restoredKeys.has(key)) localStorage.removeItem(key);
-  });
-  for (const [key, value] of Object.entries(items)) {
-    localStorage.setItem(key, typeof value === "string" ? value : JSON.stringify(value));
-  }
-};
-
-const restoreBackupFromFile = async (file) => {
-  try {
-    const text = await file.text();
-    const payload = JSON.parse(text);
-    if (!payload || typeof payload !== "object" || typeof payload.items !== "object") {
-      throw new Error("Invalid backup format.");
-    }
-    if (payload.version && payload.version > BACKUP_VERSION) {
-      logAppEvent("Backup version is newer than supported, attempting restore anyway.");
-    }
-    applyBackupItems(payload.items || {});
-    const count = Object.keys(payload.items || {}).length;
-    updateBackupStatus(`Backup restored (${count} item${count === 1 ? "" : "s"}). Reloading...`);
-    window.setTimeout(() => window.location.reload(), 600);
-  } catch (error) {
-    console.error("Backup restore failed:", error);
-    updateBackupStatus(`Restore failed: ${error?.message || error}`);
-  }
-};
-
-const offerDownloadCopy = (buffer, fileName) => {
-  try {
-    const blob = new Blob([buffer], { type: "application/octet-stream" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = fileName;
-    anchor.rel = "noopener";
-    anchor.style.display = "none";
-    document.body.appendChild(anchor);
-    anchor.click();
-    window.setTimeout(() => {
-      document.body.removeChild(anchor);
-      URL.revokeObjectURL(url);
-    }, 0);
-  } catch (error) {
-    console.warn("Unable to offer GeoNames download copy:", error);
-  }
-};
-
-const handleGeonamesDownload = async () => {
-  updateGeonamesStatus("Downloading GeoNames lite dataset...");
-  try {
-    const response = await fetch("/assets/data/geonames-lite-us-wa.db", { cache: "no-store" });
-    if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
-    const buffer = await response.arrayBuffer();
-    const fileName = `geonames-lite-us-wa-${new Date().toISOString().slice(0, 10)}.db`;
-    const cacheResult = await cacheGeonamesBuffer(buffer);
-    const inlineBytes = storeGeonamesInline(buffer);
-    offerDownloadCopy(buffer, fileName);
-    const meta = {
-      source: "download",
-      fileName,
-      size: buffer.byteLength,
-      updatedAt: Date.now(),
-      cached: cacheResult.cached,
-      cachePath: cacheResult.path || null,
-      inlineBytes,
-    };
-    saveGeonamesMeta(meta);
-    updateGeonamesStatus();
-    window.dispatchEvent(new CustomEvent("dalitrail:geonames-updated", { detail: { meta } }));
-  } catch (error) {
-    console.error("GeoNames download failed:", error);
-    updateGeonamesStatus(`Download failed: ${error.message || error}`);
-  }
-};
-
-const handleGeonamesConnect = async () => {
-  if ("showOpenFilePicker" in window) {
-    try {
-      const pickerOpts = {
-        multiple: false,
-        types: [
-          {
-            description: "SQLite Database",
-            accept: { "application/octet-stream": [".db", ".sqlite"], "application/x-sqlite3": [".db", ".sqlite"] },
-          },
-        ],
-      };
-      const [handle] = await window.showOpenFilePicker(pickerOpts);
-      if (!handle) return;
-      const file = await handle.getFile();
-      const buffer = await file.arrayBuffer();
-      const cacheResult = await cacheGeonamesBuffer(buffer);
-      const inlineBytes = storeGeonamesInline(buffer);
-      const meta = {
-        source: "user-file",
-        fileName: file.name,
-        size: file.size,
-        updatedAt: Date.now(),
-        cached: cacheResult.cached,
-        cachePath: cacheResult.path || null,
-        requiresPicker: true,
-        inlineBytes,
-      };
-      saveGeonamesMeta(meta);
-      updateGeonamesStatus();
-      window.dispatchEvent(new CustomEvent("dalitrail:geonames-updated", { detail: { meta } }));
-      return;
-    } catch (error) {
-      if (error?.name === "AbortError") {
-        updateGeonamesStatus("GeoNames selection cancelled.");
-        return;
-      }
-      console.warn("showOpenFilePicker unavailable or failed, falling back to file input:", error);
-    }
-  }
-  if (geonamesFileInput) geonamesFileInput.click();
-};
-
-const handleGeonamesFileInput = async (event) => {
-  const input = event.target;
-  if (!(input instanceof HTMLInputElement) || !input.files || !input.files[0]) {
-    return;
-  }
-  const file = input.files[0];
-  updateGeonamesStatus(`Importing ${file.name}...`);
-  try {
-    const buffer = await file.arrayBuffer();
-    const cacheResult = await cacheGeonamesBuffer(buffer);
-    const inlineBytes = storeGeonamesInline(buffer);
-    const meta = {
-      source: "user-file",
-      fileName: file.name,
-      size: file.size,
-      updatedAt: Date.now(),
-      cached: cacheResult.cached,
-      cachePath: cacheResult.path || null,
-      requiresPicker: false,
-      inlineBytes,
-    };
-    saveGeonamesMeta(meta);
-    updateGeonamesStatus();
-    window.dispatchEvent(new CustomEvent("dalitrail:geonames-updated", { detail: { meta } }));
-  } catch (error) {
-    console.error("Failed to import GeoNames file:", error);
-    updateGeonamesStatus(`Unable to read ${file.name}: ${error.message || error}`);
-  } finally {
-    input.value = "";
-  }
-};
-
-const handleGeonamesManage = () => {
-  const meta = loadGeonamesMeta();
-  if (!meta) {
-    updateGeonamesStatus("No GeoNames database connected yet. Download one or select an existing file.");
-    return;
-  }
-  const parts = [
-    `Source: ${meta.source === "user-file" ? "Custom file" : "DaliTrail download"}`,
-    `File: ${meta.fileName || "unknown"}`,
-    `Size: ${formatBytes(meta.size || 0)}`,
-    `Cached offline: ${meta.cached ? "Yes" : "No"}`,
-    meta.cachePath ? `Cache path: ${meta.cachePath}` : null,
-    `Updated: ${new Date(meta.updatedAt || Date.now()).toLocaleString()}`,
-  ].filter(Boolean);
-  updateGeonamesStatus(parts.join(" | "));
-};
-
-if (geonamesDownloadBtn) {
-  geonamesDownloadBtn.addEventListener("click", () => {
-    void handleGeonamesDownload();
-  });
-}
-
-if (geonamesConnectBtn) {
-  geonamesConnectBtn.addEventListener("click", () => {
-    void handleGeonamesConnect();
-  });
-}
-
-if (geonamesManageBtn) {
-  geonamesManageBtn.addEventListener("click", () => {
-    handleGeonamesManage();
-  });
-}
-
-if (geonamesFileInput) {
-  geonamesFileInput.addEventListener("change", handleGeonamesFileInput, { passive: true });
-}
-
-updateGeonamesStatus();
-
-// ---------- Install helpers ----------
-const getManualInstallInstructions = () => {
-  if (isIosDevice) return "Use Safari's share sheet and choose Add to Home Screen.";
-  if (isAndroidDevice || isWindowsDevice) return "Make sure you're online and using the latest Chrome/Edge, then refresh and try again.";
-  return "Try a supported browser like Chrome or Edge.";
-};
-
-const updateInstallHint = () => {
-  if (!installHintText) return;
-  if (isIosDevice) installHintText.textContent = "On iPhone: open Safari’s share sheet and pick Add to Home Screen.";
-  else if (isAndroidDevice) installHintText.textContent = "On Android: tap Install. If nothing appears, make sure you're in Chrome and try again.";
-  else if (isWindowsDevice) installHintText.textContent = "On Windows: tap Install in Chrome/Edge. If nothing appears, try again.";
-  else installHintText.textContent = "Tap Install to open your browser’s install prompt when supported.";
-};
-
-const clearInstallPromptWait = () => {
-  if (installPromptWaitTimeoutId !== null) {
-    window.clearTimeout(installPromptWaitTimeoutId);
-    installPromptWaitTimeoutId = null;
-  }
-};
-
-const promptInstall = async () => {
-  if (!deferredInstallPrompt || !installBtn) return;
-  logAppEvent("Install prompt requested.");
-  installClickRequested = false;
-  clearInstallPromptWait();
-  installBtn.disabled = true;
-  installStatusText && (installStatusText.textContent = "Displaying install prompt...");
-  let fallbackTimer = null;
-  const scheduleFallbackNotice = () => {
-    if (!installStatusText) return;
-    fallbackTimer = window.setTimeout(() => {
-      installBtn.disabled = false;
-      installStatusText.textContent = `Install prompt might be blocked. ${getManualInstallInstructions()}`;
-      logAppEvent("Install prompt fallback: no prompt appeared within timeout.");
-    }, 5000);
-  };
-  try {
-    scheduleFallbackNotice();
-    await deferredInstallPrompt.prompt();
-    const choice = deferredInstallPrompt.userChoice && (await deferredInstallPrompt.userChoice);
-    if (fallbackTimer) window.clearTimeout(fallbackTimer);
-    if (!choice) {
-      installBtn.disabled = false;
-      installStatusText && (installStatusText.textContent = `Install prompt may not be supported here. ${getManualInstallInstructions()}`);
-      logAppEvent("Install prompt resolved with no user choice.");
-      return;
-    }
-    if (choice.outcome === "accepted") {
-      installSection.hidden = true;
-      logAppEvent("User accepted install prompt.");
-    } else {
-      installBtn.disabled = false;
-      installStatusText && (installStatusText.textContent = "Install was cancelled. You can try again anytime.");
-      logAppEvent("User dismissed install prompt.");
-    }
+    const raw = localStorage.getItem(GEONAMES_DATASET_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
-    installBtn.disabled = false;
-    installStatusText && (installStatusText.textContent = `Unable to open install prompt. ${getManualInstallInstructions()}`);
-    logAppEvent("Install prompt threw an error.");
-  } finally {
-    if (fallbackTimer) window.clearTimeout(fallbackTimer);
-    deferredInstallPrompt = null;
+    return [];
   }
 };
 
-// ---------- Permissions banner ----------
-const setStatus = (message) => {
-  if (!statusText) return;
-  if (!message) {
-    statusText.textContent = "";
-    statusText.hidden = true;
-  } else {
-    statusText.textContent = message;
-    statusText.hidden = false;
-  }
-};
-const updatePermissionBanner = (geoPermission) => {
-  if (geoPermission === "denied") {
-    setStatus("Location access denied. Enable it in your browser settings to continue.");
-  }
+const cacheGeonamesDatasets = (datasets) => {
+  try {
+    localStorage.setItem(GEONAMES_DATASET_CACHE_KEY, JSON.stringify(datasets));
+  } catch {}
 };
 
-// ---------- Location page button wiring ----------
-function ensureHiddenInputs() {
-  // location.js reads these by ID; create if missing (hidden).
-  let note = document.getElementById("location-note-input");
-  if (!note) {
-    note = document.createElement("input");
-    note.type = "hidden";
-    note.id = "location-note-input";
-    document.body.appendChild(note);
+const setGeonamesStatus = (message) => {
+  if (!geonamesStatusText) return;
+  geonamesStatusText.textContent = message;
+};
+
+const describeGeonamesMeta = (meta) => {
+  if (!meta) return "No GeoNames database connected yet.";
+  const parts = [];
+  if (meta.label) parts.push(meta.label);
+  else if (meta.fileName) parts.push(meta.fileName);
+  else parts.push("GeoNames dataset");
+  if (meta.size) parts.push(formatBytes(meta.size));
+  if (meta.downloadedAt) {
+    const downloaded = new Date(meta.downloadedAt);
+    if (!Number.isNaN(downloaded.getTime())) parts.push(`downloaded ${downloaded.toLocaleString()}`);
   }
-  let manual = document.getElementById("manual-coordinate-input");
-  if (!manual) {
-    manual = document.createElement("input");
-    manual.type = "hidden";
-    manual.id = "manual-coordinate-input";
-    document.body.appendChild(manual);
+  return parts.join(" • ") || "GeoNames database connected.";
+};
+
+const refreshGeonamesStatus = () => {
+  const meta = loadGeonamesMeta();
+  setGeonamesStatus(describeGeonamesMeta(meta));
+};
+
+const ensureGeonamesDatasetList = async () => {
+  if (geonamesDatasetsFetched) return geonamesDatasets;
+  try {
+    const response = await fetch("/api/geonames/datasets", { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    const payload = await response.json();
+    const list = Array.isArray(payload?.datasets)
+      ? payload.datasets
+      : Array.isArray(payload)
+      ? payload
+      : [];
+    if (!list.length) throw new Error("Dataset list is empty.");
+    geonamesDatasets = list;
+    geonamesDatasetsFetched = true;
+    geonamesDatasetOptionsLoaded = false;
+    cacheGeonamesDatasets(list);
+    return geonamesDatasets;
+  } catch (error) {
+    const cached = loadCachedGeonamesDatasets();
+    if (cached.length) {
+      geonamesDatasets = cached;
+      geonamesDatasetsFetched = true;
+      geonamesDatasetOptionsLoaded = false;
+      return geonamesDatasets;
+    }
+    if (FALLBACK_GEONAMES_DATASETS.length) {
+      console.warn("Falling back to bundled GeoNames dataset list:", error);
+      geonamesDatasets = [...FALLBACK_GEONAMES_DATASETS];
+      geonamesDatasetsFetched = true;
+      geonamesDatasetOptionsLoaded = false;
+      return geonamesDatasets;
+    }
+    throw error;
   }
-  let acc = document.getElementById("manual-accuracy-input");
-  if (!acc) {
-    acc = document.createElement("input");
-    acc.type = "hidden";
-    acc.id = "manual-accuracy-input";
-    document.body.appendChild(acc);
-  }
-  return { note, manual, acc };
-}
+};
 
+const populateGeonamesDatasetOptions = () => {
+  if (!geonamesDownloadSelect) return;
+  const previousValue = geonamesDownloadSelect.value;
+  geonamesDownloadSelect.innerHTML = "";
 
-btnImport?.addEventListener("click", () => kmlInput?.click());
-
-// ---------- Wire events ----------
-openMapsBtn?.addEventListener("click", openRouteInMaps);
-toggleLogBtn?.addEventListener("click", toggleLogVisibility);
-
-openLocationViewBtn?.addEventListener("click", () => showView("location"));
-openNotesViewBtn?.addEventListener("click", () => showView("notes"));
-openAboutViewBtn?.addEventListener("click", () => showView("about"));
-
-
-openLocationHistoryBtn?.addEventListener("click", () => {
-  renderLocationHistory();
-  showView("location-history");
-});
-historyViewBtn?.addEventListener("click", openSelectedLocations);
-historyShareBtn?.addEventListener("click", () => void shareSelectedLocations());
-historyDeleteBtn?.addEventListener("click", deleteSelectedLocations);
-
-backupDownloadBtn?.addEventListener("click", handleBackupDownload);
-backupRestoreBtn?.addEventListener("click", () => {
-  if (!backupFileInput) {
-    updateBackupStatus("Restore not supported on this device.");
+  if (!geonamesDatasets.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No datasets available";
+    option.disabled = true;
+    option.selected = true;
+    geonamesDownloadSelect.appendChild(option);
+    geonamesDatasetOptionsLoaded = true;
     return;
   }
-  backupFileInput.click();
-});
-backupFileInput?.addEventListener("change", (event) => {
-  const input = event.target;
-  if (!(input instanceof HTMLInputElement) || !input.files || input.files.length === 0) return;
-  const file = input.files[0];
-  updateBackupStatus(`Restoring from ${file.name}...`);
-  void restoreBackupFromFile(file);
-  input.value = "";
-});
 
-window.addEventListener("dalitrail:prompt-geonames", (event) => {
-  const reason = event?.detail?.reason || "GeoNames database required.";
-  logAppEvent(`GeoNames prompt: ${reason}`);
+  geonamesDatasets.forEach((dataset, index) => {
+    const option = document.createElement("option");
+    option.value = dataset.id;
+    const approx = dataset.approx_size || dataset.approxSize || "";
+    option.textContent = approx ? `${dataset.label} (${approx})` : dataset.label;
+    option.dataset.description = dataset.description || "";
+    if ((previousValue && dataset.id === previousValue) || (!previousValue && index === 0)) {
+      option.selected = true;
+    }
+    geonamesDownloadSelect.appendChild(option);
+  });
+
+  geonamesDatasetOptionsLoaded = true;
+};
+
+const getSelectedGeonamesDataset = () => {
+  if (!geonamesDownloadSelect) return null;
+  return geonamesDatasets.find((entry) => entry.id === geonamesDownloadSelect.value) || null;
+};
+
+const setGeonamesDownloadStatus = (message) => {
+  if (!geonamesDownloadStatus) return;
+  if (!message) {
+    geonamesDownloadStatus.hidden = true;
+    geonamesDownloadStatus.textContent = "";
+    return;
+  }
+  geonamesDownloadStatus.hidden = false;
+  geonamesDownloadStatus.textContent = message;
+};
+
+const openGeonamesDownloadPanel = (message) => {
+  if (!geonamesDownloadPanel) return;
   showView("about");
   if (geonamesDetails instanceof HTMLDetailsElement) geonamesDetails.open = true;
-  updateGeonamesStatus(
-    `${reason} Use the buttons below to download or select a GeoNames database.`
-  );
-  window.alert(
-    `${reason}\n\nOpen About ▸ GeoNames Data and download or select a database to continue using Search.`
-  );
-});
+  geonamesDownloadPanel.hidden = false;
+  if (message) setGeonamesDownloadStatus(message);
+  else setGeonamesDownloadStatus("Select a dataset to begin.");
+
+  ensureGeonamesDatasetList()
+    .then(() => {
+      populateGeonamesDatasetOptions();
+      const dataset = getSelectedGeonamesDataset();
+      if (dataset?.description) setGeonamesDownloadStatus(dataset.description);
+    })
+    .catch((error) => {
+      console.error("Unable to load GeoNames dataset list:", error);
+      setGeonamesDownloadStatus(`Unable to load dataset list: ${error?.message || error}`);
+    });
+};
 
 window.addEventListener("dalitrail:request-search", (event) => {
   const entry = event.detail?.entry;
   showView("search");
   window.dispatchEvent(new CustomEvent("dalitrail:search-load", { detail: { entry } }));
+});
+
+window.addEventListener("dalitrail:prompt-geonames", (event) => {
+  const reason = event?.detail?.reason || "GeoNames database required.";
+  logAppEvent(`GeoNames prompt: ${reason}`);
+  openGeonamesDownloadPanel(reason);
+  window.alert(
+    `${reason}\n\nUse the GeoNames download panel to pick a dataset, then try your search again.`
+  );
+});
+
+window.addEventListener("dalitrail:geonames-updated", () => {
+  if (geonamesDownloadPanel) geonamesDownloadPanel.hidden = true;
+  setGeonamesDownloadStatus("");
+  refreshGeonamesStatus();
+});
+
+geonamesDownloadBtn?.addEventListener("click", () => {
+  openGeonamesDownloadPanel();
+  logAppEvent("Opened GeoNames download panel.");
+});
+
+geonamesDownloadSelect?.addEventListener("change", () => {
+  const dataset = getSelectedGeonamesDataset();
+  if (dataset?.description) setGeonamesDownloadStatus(dataset.description);
+  else setGeonamesDownloadStatus("Select a dataset to begin.");
+});
+
+geonamesDownloadConfirm?.addEventListener("click", async () => {
+  if (!geonamesDownloadConfirm) return;
+  const dataset = getSelectedGeonamesDataset();
+  if (!dataset) {
+    setGeonamesDownloadStatus("Select a dataset to download.");
+    return;
+  }
+
+  try {
+    geonamesDownloadConfirm.disabled = true;
+    geonamesDownloadConfirm.textContent = "Downloading...";
+    setGeonamesDownloadStatus("Downloading dataset...");
+    logAppEvent(`Downloading GeoNames dataset: ${dataset.label || dataset.id}`);
+
+    const response = await fetch(dataset.url, { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    const buffer = await response.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    if (!bytes.length) throw new Error("Downloaded dataset is empty.");
+
+    const storedBytes = storeGeonamesInline(bytes);
+    if (!storedBytes) throw new Error("Unable to cache dataset locally.");
+
+    const meta = {
+      id: dataset.id,
+      label: dataset.label,
+      url: dataset.url,
+      fileName: dataset.file_name || dataset.fileName || `${dataset.id || "geonames"}.db`,
+      size: bytes.byteLength,
+      inlineBytes: storedBytes,
+      source: dataset.source || "download",
+      approxSize: dataset.approx_size || dataset.approxSize,
+      downloadedAt: new Date().toISOString(),
+      updatedAt: Date.now(),
+    };
+
+    saveGeonamesMeta(meta);
+    cacheGeonamesDatasets(geonamesDatasets);
+
+    setGeonamesDownloadStatus(`Download complete. Connected ${meta.fileName}.`);
+    logAppEvent(`GeoNames dataset connected: ${meta.fileName} (${formatBytes(meta.size)})`);
+    window.dispatchEvent(new CustomEvent("dalitrail:geonames-updated"));
+  } catch (error) {
+    const message = error?.message || String(error);
+    console.error("GeoNames download failed:", error);
+    setGeonamesDownloadStatus(`Download failed: ${message}`);
+    logAppEvent(`GeoNames download failed: ${message}`);
+  } finally {
+    geonamesDownloadConfirm.disabled = false;
+    geonamesDownloadConfirm.textContent = "Download & Connect";
+  }
+});
+
+openLocationViewBtn?.addEventListener("click", () => {
+  showView("location");
+  logAppEvent("Opened Location view.");
+});
+
+openEventViewBtn?.addEventListener("click", () => {
+  showView("events");
+  logAppEvent("Opened Events view.");
+});
+
+openNotesViewBtn?.addEventListener("click", () => {
+  showView("notes");
+  logAppEvent("Opened Notes view.");
+});
+
+openAboutViewBtn?.addEventListener("click", () => {
+  showView("about");
+  logAppEvent("Opened About view.");
+});
+
+openLocationHistoryBtn?.addEventListener("click", () => {
+  if (openLocationHistoryBtn.disabled) return;
+  showView("location-history");
+  logAppEvent("Viewing saved locations.");
+});
+
+historyViewBtn?.addEventListener("click", () => {
+  if (historyViewBtn.disabled) return;
+  openSelectedLocations();
+  logAppEvent("Opened selected locations on map.");
+});
+
+historyShareBtn?.addEventListener("click", async () => {
+  if (historyShareBtn.disabled) return;
+  try {
+    await shareSelectedLocations();
+    logAppEvent("Shared selected locations.");
+  } catch (error) {
+    logAppEvent(`Sharing locations failed: ${error?.message || error}`);
+  }
+});
+
+historyDeleteBtn?.addEventListener("click", () => {
+  if (historyDeleteBtn.disabled) return;
+  deleteSelectedLocations();
+  logAppEvent("Deleted selected locations.");
 });
 
 backBtn?.addEventListener("click", () => {
@@ -849,6 +707,7 @@ loadSavedLocations();
 renderLatestLocation();
 renderLocationHistory();
 showView(loadInitialView());
+refreshGeonamesStatus();
 
 if (!isSecure) {
   setStatus("Open this app via HTTPS (or localhost) to enable location tracking.");
@@ -870,3 +729,6 @@ navigator.serviceWorker?.addEventListener("controllerchange", () => {
     );
   }
 });
+
+
+

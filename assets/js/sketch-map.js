@@ -326,8 +326,11 @@ function openPlotOverlay(input = {}) {
   const points = Array.isArray(input.points) ? input.points : [];
   const labelDistance = input.labelDistance !== false;
   const units = input.units === "km" ? "km" : "m";
+  const originIndex = Number.isInteger(input.originIndex) ? input.originIndex : 0;
+  const connections = Array.isArray(input.connections) ? input.connections : null;
+  const distanceMode = input.distanceMode === "origin" ? "origin" : "path";
 
-  const scene = buildPlotScene(points);
+  const scene = buildPlotScene(points, { originIndex, connections });
 
   const overlay = document.createElement("div");
   overlay.className = "sketchmap-overlay";
@@ -401,7 +404,7 @@ function openPlotOverlay(input = {}) {
 
   function fitAndDraw() {
     fitPlot(camera, scene);
-    drawPlot(canvas, ctx, camera, scene, { labelDistance, units });
+    drawPlot(canvas, ctx, camera, scene, { labelDistance, units, distanceMode });
   }
 
   // Mouse pan/zoom ------------------------------------------------------------
@@ -425,7 +428,7 @@ function openPlotOverlay(input = {}) {
     camera.x += pt.x - last.x;
     camera.y += pt.y - last.y;
     last = pt;
-    drawPlot(canvas, ctx, camera, scene, { labelDistance, units });
+    drawPlot(canvas, ctx, camera, scene, { labelDistance, units, distanceMode });
   }
 
   function onPointerUp() {
@@ -444,7 +447,7 @@ function openPlotOverlay(input = {}) {
     camera.x = mx - (mx - camera.x) * (nextScale / prevScale);
     camera.y = my - (my - camera.y) * (nextScale / prevScale);
     camera.scale = nextScale;
-    drawPlot(canvas, ctx, camera, scene, { labelDistance, units });
+    drawPlot(canvas, ctx, camera, scene, { labelDistance, units, distanceMode });
   }
 
   // Touch gestures ------------------------------------------------------------
@@ -485,13 +488,13 @@ function openPlotOverlay(input = {}) {
       camera.x = pinch.center.x - (pinch.center.x - pinch.startX) * (nextScale / pinch.startScale);
       camera.y = pinch.center.y - (pinch.center.y - pinch.startY) * (nextScale / pinch.startScale);
       camera.scale = nextScale;
-      drawPlot(canvas, ctx, camera, scene, { labelDistance, units });
+      drawPlot(canvas, ctx, camera, scene, { labelDistance, units, distanceMode });
     } else if (dragging && evt.touches.length === 1) {
       const touch = getTouchPoint(evt.touches[0]);
       camera.x += touch.x - last.x;
       camera.y += touch.y - last.y;
       last = touch;
-      drawPlot(canvas, ctx, camera, scene, { labelDistance, units });
+      drawPlot(canvas, ctx, camera, scene, { labelDistance, units, distanceMode });
     }
   }
 
@@ -591,7 +594,7 @@ function computeBounds(points) {
   return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
 }
 
-function buildPlotScene(points) {
+function buildPlotScene(points, { originIndex = 0, connections = null } = {}) {
   const pts = (Array.isArray(points) ? points : [])
     .filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))
     .map((p) => ({
@@ -607,10 +610,15 @@ function buildPlotScene(points) {
     metersPerDegX: 0,
     metersPerDegY: 110540,
     bounds: null,
-    distances: [],
+    connections: [],
+    edges: [],
+    drawMode: "path",
+    originIndex: 0,
   };
 
   if (!pts.length) return scene;
+
+  scene.originIndex = Math.min(Math.max(0, Number.isInteger(originIndex) ? originIndex : 0), pts.length - 1);
 
   let latSum = 0;
   let lngSum = 0;
@@ -646,14 +654,60 @@ function buildPlotScene(points) {
     height: Math.max(1, maxY - minY),
   };
 
-  scene.distances = [];
-  for (let i = 1; i < pts.length; i += 1) {
-    const a = pts[i - 1];
-    const b = pts[i];
+  const defaultConnections = () => {
+    const edges = [];
+    for (let i = 1; i < pts.length; i += 1) edges.push({ from: i - 1, to: i });
+    return edges;
+  };
+
+  const normalizedConnections = Array.isArray(connections)
+    ? connections
+        .map((conn) => {
+          if (conn == null) return null;
+          if (typeof conn === "object") {
+            const from = Number.isInteger(conn.from) ? conn.from : Number.isInteger(conn[0]) ? conn[0] : null;
+            const to = Number.isInteger(conn.to) ? conn.to : Number.isInteger(conn[1]) ? conn[1] : null;
+            if (Number.isInteger(from) && Number.isInteger(to)) return { from, to };
+            return null;
+          }
+          if (Array.isArray(conn) && conn.length >= 2) {
+            const from = Number.isInteger(conn[0]) ? conn[0] : null;
+            const to = Number.isInteger(conn[1]) ? conn[1] : null;
+            if (Number.isInteger(from) && Number.isInteger(to)) return { from, to };
+            return null;
+          }
+          return null;
+        })
+        .filter(Boolean)
+    : null;
+
+  const seenEdges = new Set();
+  const validConnections = [];
+  if (normalizedConnections?.length) {
+    normalizedConnections.forEach(({ from, to }) => {
+      if (from === to) return;
+      if (from < 0 || from >= pts.length) return;
+      if (to < 0 || to >= pts.length) return;
+      const key = `${from}->${to}`;
+      if (seenEdges.has(key)) return;
+      seenEdges.add(key);
+      validConnections.push({ from, to });
+    });
+  }
+
+  scene.connections = validConnections.length ? validConnections : defaultConnections();
+  const isSequentialPath =
+    scene.connections.length === pts.length - 1 &&
+    scene.connections.every((edge, idx) => edge.from === idx && edge.to === idx + 1);
+  scene.drawMode = isSequentialPath ? "path" : "graph";
+
+  scene.edges = scene.connections.map(({ from, to }) => {
+    const a = pts[from];
+    const b = pts[to];
     const dx = b._x - a._x;
     const dy = b._y - a._y;
-    scene.distances.push({ index: i, meters: Math.hypot(dx, dy) });
-  }
+    return { from, to, meters: Math.hypot(dx, dy) };
+  });
 
   return scene;
 }
@@ -670,7 +724,7 @@ function fitPlot(cam, scene) {
   cam.y = pad + scene.bounds.maxY * cam.scale;
 }
 
-function drawPlot(canvas, ctx, cam, scene, { labelDistance = true, units = "m" } = {}) {
+function drawPlot(canvas, ctx, cam, scene, { labelDistance = true, units = "m", distanceMode = "path" } = {}) {
   const theme = getTheme();
 
   ctx.save();
@@ -698,19 +752,38 @@ function drawPlot(canvas, ctx, cam, scene, { labelDistance = true, units = "m" }
     return;
   }
 
-  // Path.
+  const drawLine = (a, b) => {
+    const ax = a._x * cam.scale + cam.x;
+    const ay = a._y * cam.scale + cam.y;
+    const bx = b._x * cam.scale + cam.x;
+    const by = b._y * cam.scale + cam.y;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(bx, by);
+    ctx.stroke();
+  };
+
   ctx.lineWidth = 2;
   ctx.strokeStyle = theme.accent;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.beginPath();
-  scene.points.forEach((p, i) => {
-    const x = p._x * cam.scale + cam.x;
-    const y = p._y * cam.scale + cam.y;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
+
+  if (scene.drawMode === "path") {
+    ctx.beginPath();
+    scene.points.forEach((p, i) => {
+      const x = p._x * cam.scale + cam.x;
+      const y = p._y * cam.scale + cam.y;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  } else {
+    scene.connections.forEach(({ from, to }) => {
+      const a = scene.points[from];
+      const b = scene.points[to];
+      drawLine(a, b);
+    });
+  }
 
   // Points.
   const radius = 5;
@@ -728,22 +801,37 @@ function drawPlot(canvas, ctx, cam, scene, { labelDistance = true, units = "m" }
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
     ctx.fillText(String(i + 1), x, y + radius + 3);
+
+    const label = formatPointLabel(p);
+    if (label) {
+      ctx.fillStyle = theme.fgMuted;
+      ctx.font = "11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+      ctx.fillText(label, x, y + radius + 18);
+    }
   });
 
-  if (labelDistance && scene.points.length >= 2) {
+  if (labelDistance && scene.edges.length) {
     ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
-    for (let i = 1; i < scene.points.length; i += 1) {
-      const a = scene.points[i - 1];
-      const b = scene.points[i];
+    const edgesToLabel =
+      distanceMode === "origin"
+        ? scene.edges.filter((edge) => edge.from === scene.originIndex || edge.to === scene.originIndex)
+        : scene.edges;
+    const labeled = new Set();
+    edgesToLabel.forEach((edge) => {
+      const keyA = `${edge.from}->${edge.to}`;
+      if (labeled.has(keyA)) return;
+      labeled.add(keyA);
+      const a = scene.points[edge.from];
+      const b = scene.points[edge.to];
       const ax = a._x * cam.scale + cam.x;
       const ay = a._y * cam.scale + cam.y;
       const bx = b._x * cam.scale + cam.x;
       const by = b._y * cam.scale + cam.y;
       const mx = (ax + bx) / 2;
       const my = (ay + by) / 2;
-      const label = formatDistance(scene.distances[i - 1].meters, units);
+      const label = formatDistance(edge.meters, units);
       ctx.save();
       ctx.strokeStyle = theme.bg;
       ctx.lineWidth = 3;
@@ -751,7 +839,7 @@ function drawPlot(canvas, ctx, cam, scene, { labelDistance = true, units = "m" }
       ctx.fillStyle = theme.fgMuted;
       ctx.fillText(label, mx, my - 6);
       ctx.restore();
-    }
+    });
   }
 
   ctx.restore();
@@ -778,6 +866,14 @@ function formatDistance(meters, unitsPref) {
     return `${value.toFixed(value >= 10 ? 0 : 1)} km`;
   }
   return `${Math.round(meters)} m`;
+}
+
+function formatPointLabel(point, maxLength = 26) {
+  if (!point) return "";
+  const raw = typeof point.note === "string" ? point.note.trim() : "";
+  if (!raw) return "";
+  if (raw.length <= maxLength) return raw;
+  return `${raw.slice(0, maxLength - 1)}…`;
 }
 
 function getTheme() {

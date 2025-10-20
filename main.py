@@ -6,7 +6,13 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from geodata import GeoNamesDatasetNotFound, dataset_metadata, fetch_nearby_features, resolve_dataset_path
+from geodata import (
+    GeoNamesDatasetNotFound,
+    dataset_metadata,
+    fetch_nearby_features,
+    load_geonames_dataset_catalog,
+    resolve_dataset_path,
+)
 
 BASE_DIR = Path(__file__).parent.resolve()
 
@@ -97,6 +103,23 @@ class NearbyResponse(BaseModel):
     features: list[FeatureModel]
 
 
+class GeoNamesDatasetModel(BaseModel):
+    id: str
+    label: str
+    url: str
+    description: str | None = None
+    file_name: str | None = None
+    source: str | None = None
+    approx_size: str | None = None
+    size_bytes: int | None = None
+    available: bool | None = None
+    error: str | None = None
+
+
+class GeoNamesDatasetList(BaseModel):
+    datasets: list[GeoNamesDatasetModel]
+
+
 def _get_dataset_path() -> Path:
     try:
         return resolve_dataset_path()
@@ -166,6 +189,15 @@ async def nearby_places(
         metadata=metadata,
         features=response_features,
     )
+
+
+@app.get("/api/geonames/datasets", response_model=GeoNamesDatasetList)
+async def geonames_datasets():
+    try:
+        datasets = load_geonames_dataset_catalog()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return GeoNamesDatasetList(datasets=[GeoNamesDatasetModel(**item) for item in datasets])
 
 
 if __name__ == "__main__":

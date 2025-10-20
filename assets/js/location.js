@@ -813,6 +813,61 @@ Sent from DaliTrail.`;
 
 export const getSelectedLocations = () => savedLocations.filter((e) => selectedLocationIds.has(e.id));
 
+export const addLocationsFromSearch = (features) => {
+  if (!Array.isArray(features) || !features.length) {
+    return { added: 0, total: savedLocations.length };
+  }
+
+  const coordKey = (lat, lng) => `${round6(lat)},${round6(lng)}`;
+  const existing = new Set(savedLocations.map((entry) => coordKey(entry.lat, entry.lng)));
+  const freshEntries = [];
+  const now = Date.now();
+
+  features.forEach((feature, index) => {
+    if (!feature) return;
+    const lat = Number(feature.latitude ?? feature.lat);
+    const lng = Number(feature.longitude ?? feature.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+    const key = coordKey(lat, lng);
+    if (existing.has(key)) return;
+
+    const accuracy = Number.isFinite(feature.accuracy) ? feature.accuracy : null;
+    const altitude = Number.isFinite(feature.elevation) ? feature.elevation : null;
+    const timestamp = now + index;
+    const entry = {
+      id: `${timestamp}-${Math.random().toString(16).slice(2, 8)}`,
+      lat,
+      lng,
+      accuracy,
+      altitude,
+      note: feature.name ? `Search: ${feature.name}` : "",
+      timestamp,
+    };
+
+    existing.add(key);
+    freshEntries.push(entry);
+  });
+
+  if (!freshEntries.length) {
+    locationStatusText && (locationStatusText.textContent = "Selected results already saved.");
+    return { added: 0, total: savedLocations.length };
+  }
+
+  savedLocations = [...freshEntries, ...savedLocations].sort((a, b) => b.timestamp - a.timestamp);
+  persistSavedLocations();
+  renderLatestLocation();
+  renderLocationHistory();
+
+  const addedCount = freshEntries.length;
+  const totalCount = savedLocations.length;
+  const message = `Added ${addedCount} search result${addedCount === 1 ? "" : "s"} to saved locations.`;
+  locationStatusText && (locationStatusText.textContent = message);
+  locationHistoryStatus && (locationHistoryStatus.textContent = message);
+  openLocationHistoryBtn && (openLocationHistoryBtn.disabled = totalCount === 0);
+  return { added: addedCount, total: totalCount };
+};
+
 export const openSelectedLocations = () => {
   const selected = getSelectedLocations();
   if (selected.length === 0) return;

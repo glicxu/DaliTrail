@@ -341,6 +341,34 @@ body {
     color: rgba(226, 232, 240, 0.7);
 }
 
+.geonames-download-panel {
+    display: grid;
+    gap: 10px;
+    padding-top: 4px;
+}
+
+.geonames-download-panel label {
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+.geonames-download-panel select {
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(12, 19, 33, 0.92);
+    color: inherit;
+}
+
+.geonames-download-panel .btn {
+    justify-self: flex-start;
+    min-width: 200px;
+}
+
+.geonames-download-panel .status-text {
+    margin: 0;
+}
+
 .geonames-manage-btn {
     justify-self: flex-end;
     background: rgba(255, 255, 255, 0.08);
@@ -691,6 +719,93 @@ textarea::placeholder {
     border-radius: 999px;
 }
 
+.event-editor {
+    display: grid;
+    gap: 0.9rem;
+    margin: 0.5rem 0 1.25rem;
+}
+
+.event-editor .form-row {
+    display: grid;
+    gap: 0.4rem;
+}
+
+.event-editor input,
+.event-editor textarea {
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(0, 0, 0, 0.25);
+    color: inherit;
+}
+
+.event-editor textarea {
+    min-height: 90px;
+    resize: vertical;
+}
+
+.event-editor-actions {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
+.events-list {
+    list-style: none;
+    display: grid;
+    gap: 0.9rem;
+    padding: 0;
+    margin: 0 0 1.5rem;
+}
+
+.event-item {
+    position: relative;
+}
+
+.event-card {
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 14px;
+    padding: 0.9rem;
+    background: rgba(0, 0, 0, 0.22);
+    display: grid;
+    gap: 0.6rem;
+}
+
+.event-card .event-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    font-size: 0.9rem;
+    opacity: 0.85;
+}
+
+.event-card .event-note {
+    font-size: 1rem;
+    line-height: 1.4;
+}
+
+.event-card .event-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+@media (prefers-color-scheme: light) {
+    .event-editor input,
+    .event-editor textarea {
+        background: rgba(255, 255, 255, 0.92);
+        color: #0f172a;
+        border-color: rgba(15, 23, 42, 0.1);
+    }
+
+    .event-card {
+        background: rgba(255, 255, 255, 0.92);
+        color: #0f172a;
+        border-color: rgba(15, 23, 42, 0.08);
+    }
+}
+
 .search-view {
     display: flex;
     flex-direction: column;
@@ -764,7 +879,31 @@ textarea::placeholder {
 .search-result-item {
     background: rgba(0, 0, 0, 0.24);
     border-radius: 14px;
-    padding: 14px;
+    padding: 10px 14px;
+    transition: border-color 0.2s ease, background-color 0.2s ease;
+    border: 1px solid transparent;
+}
+
+.search-result-item.selected {
+    border-color: rgba(255, 255, 255, 0.25);
+    background: rgba(43, 127, 246, 0.18);
+}
+
+.search-result {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    align-items: start;
+}
+
+.search-result-checkbox {
+    width: 20px;
+    height: 20px;
+    margin-top: 4px;
+    accent-color: #2b7ff6;
+}
+
+.search-result-content {
     display: grid;
     gap: 8px;
 }
@@ -783,10 +922,26 @@ textarea::placeholder {
     gap: 4px;
 }
 
-.search-result-actions {
+.search-results-actions {
     display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 12px;
+    overflow-x: auto;
+    padding: 4px 0 8px;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+}
+
+.search-results-actions::before,
+.search-results-actions::after {
+    content: "";
+    flex: 0 0 12px;
+}
+
+.search-results-actions .btn {
+    flex: 0 0 auto;
+    min-width: 180px;
+    scroll-snap-align: start;
 }
 
 @media (min-width: 640px) {

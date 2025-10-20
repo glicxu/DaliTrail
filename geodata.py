@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List
+from typing import Any, Iterable, List
 
 import sqlite3
 
@@ -17,6 +18,7 @@ DEFAULT_DATASET_PATHS: tuple[Path, ...] = (
     BASE_DIR / "data" / DEFAULT_DATASET_NAME,
     BASE_DIR.parent / "DaliTrailData" / "data" / DEFAULT_DATASET_NAME,
 )
+DATASET_CATALOG_PATH = BASE_DIR / "configs" / "geonames-datasets.json"
 
 
 class GeoNamesDatasetNotFound(RuntimeError):
@@ -176,3 +178,138 @@ def dataset_metadata(db_path: Path | None = None) -> dict[str, str]:
         except sqlite3.OperationalError:
             return {}
     return {row["key"]: row["value"] for row in rows}
+
+
+def _default_dataset_catalog() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "us-wa",
+            "label": "United States - Washington State",
+            "description": "Cities, trails, and outdoor features for Washington.",
+            "source": "active",
+            "url": "/datasets/geonames-lite-us-wa.db",
+        },
+        {
+            "id": "sample",
+            "label": "Sample Dataset (Tiny)",
+            "description": "Mini dataset for testing search locally.",
+            "source": "static",
+            "path": "assets/data/geonames-sample.db",
+            "file_name": "geonames-sample.db",
+            "url": "/assets/data/geonames-sample.db",
+        },
+    ]
+
+
+def _format_size_bytes(size: int) -> str:
+    if size < 1024:
+        return f"{size} B"
+    units = ["KB", "MB", "GB", "TB"]
+    value = size / 1024.0
+    index = 0
+    while value >= 1024 and index < len(units) - 1:
+        value /= 1024.0
+        index += 1
+    precision = 1 if value < 10 else 0
+    return f"{value:.{precision}f} {units[index]}"
+
+
+def _load_dataset_config() -> list[dict[str, Any]]:
+    if not DATASET_CATALOG_PATH.exists():
+        return _default_dataset_catalog()
+    try:
+        raw = json.loads(DATASET_CATALOG_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Invalid GeoNames dataset catalog JSON: {exc}") from exc
+
+    if isinstance(raw, dict):
+        entries = raw.get("datasets", [])
+    else:
+        entries = raw
+
+    if not isinstance(entries, list):
+        raise RuntimeError("GeoNames dataset catalog must be a list or contain a 'datasets' list.")
+
+    datasets: list[dict[str, Any]] = []
+    for entry in entries:
+        if isinstance(entry, dict):
+            datasets.append(entry)
+    if not datasets:
+        return _default_dataset_catalog()
+    return datasets
+
+
+def _resolve_catalog_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    dataset = dict(entry)
+    dataset_id = dataset.get("id")
+    if not dataset_id:
+        raise ValueError("GeoNames dataset entry is missing required 'id'.")
+
+    source = dataset.get("source", "static")
+    file_path: Path | None = None
+    available = True
+    size_bytes: int | None = None
+    error_message: str | None = None
+
+    if source == "active":
+        try:
+            file_path = resolve_dataset_path()
+        except GeoNamesDatasetNotFound as exc:
+            available = False
+            error_message = str(exc)
+        else:
+            if not dataset.get("file_name"):
+                dataset["file_name"] = file_path.name
+    else:
+        raw_path = dataset.get("path")
+        if raw_path:
+            candidate = Path(raw_path)
+            if not candidate.is_absolute():
+                candidate = BASE_DIR / candidate
+            if candidate.exists():
+                file_path = candidate
+                if not dataset.get("file_name"):
+                    dataset["file_name"] = candidate.name
+            else:
+                available = False
+                error_message = f"Dataset file not found: {candidate}"
+
+    if file_path and file_path.exists():
+        try:
+            size_bytes = file_path.stat().st_size
+        except OSError as exc:
+            error_message = str(exc)
+            available = False
+
+    if size_bytes is not None:
+        dataset["size_bytes"] = size_bytes
+        dataset.setdefault("approx_size", _format_size_bytes(size_bytes))
+
+    if "url" not in dataset and dataset.get("file_name"):
+        dataset["url"] = f"/datasets/{dataset['file_name']}"
+
+    dataset["available"] = available
+    if error_message:
+        dataset["error"] = error_message
+
+    return dataset
+
+
+def load_geonames_dataset_catalog() -> list[dict[str, Any]]:
+    """Return the list of GeoNames datasets available for download."""
+    resolved: list[dict[str, Any]] = []
+    for entry in _load_dataset_config():
+        try:
+            resolved.append(_resolve_catalog_entry(entry))
+        except Exception as exc:
+            resolved.append(
+                {
+                    "id": entry.get("id", "unknown"),
+                    "label": entry.get("label", "GeoNames Dataset"),
+                    "description": entry.get("description", ""),
+                    "source": entry.get("source", "static"),
+                    "available": False,
+                    "error": str(exc),
+                }
+            )
+    return resolved

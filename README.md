@@ -104,6 +104,7 @@ When the DaliTrail FastAPI server runs from this repository it automatically loo
 Two helper endpoints are exposed:
 
 - GET /datasets/geonames-lite-us-wa.db downloads the active SQLite file.
+- GET /api/geonames/datasets returns the list of GeoNames bundles the server can provide.
 - GET /api/places/nearby?lat=...&lng=...&radius_km=10&limit=25 returns nearby points of interest. Optional eature_codes=H.LK,T.TRL narrows results.
 
 Example query for downtown Seattle:
@@ -114,8 +115,9 @@ curl "http://localhost:8000/api/places/nearby?lat=47.6062&lng=-122.3321&radius_k
 
 The response includes dataset metadata (if present) and an ordered list of features with their distance in kilometres from the supplied coordinates.
 
-Inside the PWA, the Location view's Search button reads the downloaded GeoNames SQLite bundle directly in the browser (via sql.js) to surface nearby places of interest for the latest saved point. The first time you use it the app will fetch the sql.js runtime (cached afterwards), so make sure you are online once before relying on the feature offline.
+Inside the PWA, the Location view's Search button reads the downloaded GeoNames SQLite bundle directly in the browser (via sql.js) to surface nearby places of interest for the latest saved point. Use About -> GeoNames Data -> Download GeoNames to pick a state/region; the first time you run Search the app will fetch the sql.js runtime (cached afterwards), so make sure you are online once before relying on the feature offline.
 
 ## Backup & Restore
 
 Use the About tab in the PWA and expand *Backup & Restore* to export a JSON snapshot of all saved data (locations, notes, trail sessions, and GeoNames metadata). The same panel lets you load the file on another device to restore what you backed up.
+
