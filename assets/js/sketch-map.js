@@ -1,23 +1,21 @@
 // /assets/js/sketch-map.js
 // Unified Sketch Map overlay for DaliTrail.
-// Consistent toolbar: [Pin/Unpin me] [Start/Pause Tracking] [Save] [Close]
-// One setup function: controller.setData({ points, target, anchor })
-// - points: array of {lat, lng, note?, timestamp?}
-// - target: optional {lat, lng, note?}
-// - anchor: optional {lat, lng} => computes anchorDistanceMeters on each point
+// Consistent toolbar: [Pin/Unpin me] [Start/Pause Tracking] [3D] [Save] [Close]
+// Public API: openSketchMap(input)
+//   - input.points: array of {lat, lng, note?, timestamp?}
+//   - input.target: optional {lat, lng, note?}
+//   - input.anchor: optional {lat, lng} => computes anchorDistanceMeters on each point
 
 import { haversineMeters, distanceAndDirection } from "/assets/js/utils.js";
+import { openThreeOverlay } from "/assets/js/sketch-3d.js";
 
 // ---------------- Public API ----------------
-
 export function openSketchMap(input = {}) {
   return createUnifiedOverlay(normalizeInput(input));
 }
-
 export default openSketchMap;
 
 // -------------- Constants / Config ----------
-
 const MAX_TRACK_POINTS = 1500;
 const MIN_TRACK_DELTA_METERS = 6;
 const MAX_TRACK_POINT_ACCURACY_METERS = 120;
@@ -26,13 +24,11 @@ const ANCHOR_MAX_ACCURACY_METERS = 45;
 const ANCHOR_TIMEOUT_MS = 3000;
 
 // Elevation accumulation tuning
-const MIN_ELEV_DELTA_METERS = 1.5;          // ignore tiny vertical wiggles
-const MAX_ALTITUDE_ACCURACY_METERS = 25;    // skip very noisy altitude fixes when provided
+const MIN_ELEV_DELTA_METERS = 1.5;       // ignore tiny vertical wiggles
+const MAX_ALTITUDE_ACCURACY_METERS = 25; // skip very noisy altitude fixes
 
 // -------------- Overlay ---------------------
-
 function createUnifiedOverlay(options) {
-  // normalized user options
   const {
     recordTrail = false,
     follow = true,
@@ -50,6 +46,7 @@ function createUnifiedOverlay(options) {
         <div class="sketch-actions" role="toolbar" tabindex="0">
           <button class="btn btn-outline sketch-toggle-follow">${follow ? "Unpin me" : "Pin me"}</button>
           <button class="btn btn-outline sketch-startpause">Start Tracking</button>
+          <button class="btn btn-outline sketch-3d">3D</button>
           <button class="btn btn-outline sketch-save" disabled>Save</button>
           <button class="btn btn-outline sketch-close">Close</button>
         </div>
@@ -95,7 +92,7 @@ function createUnifiedOverlay(options) {
     .sketch-actions .btn{padding:.5rem .9rem;font-size:.95rem;border-radius:12px;font-weight:600;border-width:2px;box-shadow:none}
     .sketch-actions .btn.sketch-close{color:#dc2626;border-color:rgba(220,38,38,0.5);background:rgba(220,38,38,0.12)}
     @media (prefers-color-scheme: dark){
-      .sketch-actions .btn{background:rgba(96,165,250,0.22);color:#e0f2fe;border-color:rgba(191,219,254,0.65);box-shadow:0 8px 20px rgba(59,130,246,0.35)}
+      .sketch-actions .btn{background:rgba(96,165,250,0.22);color:#0f172a;border-color:rgba(191,219,254,0.65);box-shadow:0 8px 20px rgba(59,130,246,0.35)}
       .sketch-actions .btn.sketch-close{color:#fecaca;border-color:rgba(248,113,113,0.55);background:rgba(248,113,113,0.22);box-shadow:0 8px 20px rgba(248,113,113,0.3)}
       .sketch-stats .label{color:#e2e8f0}
     }
@@ -111,6 +108,7 @@ function createUnifiedOverlay(options) {
   const btnFollow = overlay.querySelector(".sketch-toggle-follow");
   const btnStartPause = overlay.querySelector(".sketch-startpause");
   const btnSave = overlay.querySelector(".sketch-save");
+  const btn3D = overlay.querySelector(".sketch-3d");
   const distanceEl = overlay.querySelector("#sketch-distance");
   const speedEl = overlay.querySelector("#sketch-speed");
   const headingEl = overlay.querySelector("#sketch-heading");
@@ -144,7 +142,6 @@ function createUnifiedOverlay(options) {
   let saveInProgress = false;
 
   // ---------- Wiring
-
   btnClose.addEventListener("click", cleanup);
   overlay.addEventListener("click", (evt) => { if (evt.target === overlay) cleanup(); });
 
@@ -161,30 +158,38 @@ function createUnifiedOverlay(options) {
 
   btnSave.addEventListener("click", doSave);
 
+  btn3D.addEventListener("click", () => {
+    // provide a read-only snapshot to 3D view
+    const payload = {
+      points: scene.points.slice(),
+      track: track.slice(),
+      me: me ? { ...me } : null,
+      target: scene.target ? { ...scene.target } : null
+    };
+    openThreeOverlay(payload);
+  });
+
   // Resize handling
   const resizeObserver = window.ResizeObserver
     ? new ResizeObserver(() => { resizeCanvas(); draw(true); })
     : null;
   const onWindowResize = () => { resizeCanvas(); draw(true); };
-
   if (resizeObserver) { resizeObserver.observe(canvas); }
   else { window.addEventListener("resize", onWindowResize); }
 
   // ---------- Controller (public surface)
-
   const controller = {
     setData({ points = [], target = null, anchor = null } = {}) {
-      // sanitize points
       const pts = (Array.isArray(points) ? points : [])
         .filter(p => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))
         .map(p => ({
           lat: Number(p.lat),
           lng: Number(p.lng),
           note: typeof p.note === "string" ? p.note : "",
-          timestamp: Number.isFinite(p.timestamp) ? p.timestamp : Date.now()
+          timestamp: Number.isFinite(p.timestamp) ? p.timestamp : Date.now(),
+          altitude: Number.isFinite(p.altitude) ? p.altitude : null
         }));
 
-      // validate target/anchor
       const tgt = target && Number.isFinite(target.lat) && Number.isFinite(target.lng)
         ? { lat: Number(target.lat), lng: Number(target.lng), note: target.note ? String(target.note) : "Target" }
         : null;
@@ -193,7 +198,6 @@ function createUnifiedOverlay(options) {
         ? { lat: Number(anchor.lat), lng: Number(anchor.lng) }
         : null;
 
-      // compute anchor distances if anchor exists
       if (anc) {
         pts.forEach(p => {
           p.anchorDistanceMeters = haversineMeters(
@@ -207,10 +211,9 @@ function createUnifiedOverlay(options) {
       scene.target = tgt;
       scene.anchor = anc;
 
-      // Redraw using only scene (doesn't touch tracking)
       draw(true);
       updateReadout();
-      return pts; // useful if caller wants the annotated list
+      return pts;
     },
 
     getState() {
@@ -227,11 +230,10 @@ function createUnifiedOverlay(options) {
     },
 
     async save() { await doSave(); },
-
     close: cleanup,
   };
 
-  // Initialize scene from initial options (optional)
+  // Initialize scene
   controller.setData({
     points: options.points,
     target: options.target,
@@ -245,13 +247,12 @@ function createUnifiedOverlay(options) {
   updateStats();
   updateToolbarState();
 
-  // Auto-start GPS if requested
+  // Auto-start GPS
   if (liveTrack) startTracking({ silent: true });
 
   return controller;
 
   // ------------- Internals ------------------
-
   function resizeCanvas() {
     const rect = canvas.getBoundingClientRect();
     const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
@@ -355,14 +356,14 @@ function createUnifiedOverlay(options) {
     ctx.save();
     ctx.setTransform(camera.dpr,0,0,camera.dpr,0,0);
 
-    // Draw polyline: (1) scene.points path (2) track path
+    // scene path
     if (scene.points.length >= 2) {
       ctx.beginPath();
       let first = toCanvasCoords(scene.points[0], origin);
       ctx.moveTo(first.x, first.y);
       for (let i=1;i<scene.points.length;i++){
-        const next = toCanvasCoords(scene.points[i], origin);
-        ctx.lineTo(next.x, next.y);
+        const n = toCanvasCoords(scene.points[i], origin);
+        ctx.lineTo(n.x, n.y);
       }
       ctx.lineWidth = 2;
       ctx.strokeStyle = theme.accent;
@@ -371,13 +372,14 @@ function createUnifiedOverlay(options) {
       ctx.stroke();
     }
 
+    // live track path
     if (track.length >= 2) {
       ctx.beginPath();
       const first = toCanvasCoords(track[0], origin);
       ctx.moveTo(first.x, first.y);
       for (let i=1;i<track.length;i++){
-        const next = toCanvasCoords(track[i], origin);
-        ctx.lineTo(next.x, next.y);
+        const n = toCanvasCoords(track[i], origin);
+        ctx.lineTo(n.x, n.y);
       }
       ctx.lineWidth = 3;
       ctx.strokeStyle = theme.path;
@@ -386,7 +388,7 @@ function createUnifiedOverlay(options) {
       ctx.stroke();
     }
 
-    // Points labels + optional anchor distances
+    // points + labels
     const radius = 5;
     scene.points.forEach((p, idx) => {
       const pos = toCanvasCoords(p, origin);
@@ -396,14 +398,13 @@ function createUnifiedOverlay(options) {
       const isLast = idx === scene.points.length - 1;
       ctx.fillStyle = isFirst ? theme.start : isLast ? theme.end : theme.point;
       ctx.fill();
-      // index label
+
       ctx.fillStyle = theme.fg;
       ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       ctx.fillText(String(idx+1), pos.x, pos.y + radius + 3);
 
-      // info label
       const lines = [];
       const note = formatPointLabel(p);
       if (note) lines.push(note);
@@ -418,7 +419,7 @@ function createUnifiedOverlay(options) {
       }
     });
 
-    // Target
+    // target
     if (scene.target) {
       const pos = toCanvasCoords(scene.target, origin);
       ctx.beginPath();
@@ -430,7 +431,7 @@ function createUnifiedOverlay(options) {
       ctx.stroke();
     }
 
-    // Me
+    // me
     if (me) {
       const pos = toCanvasCoords(me, origin);
       ctx.beginPath();
@@ -444,7 +445,7 @@ function createUnifiedOverlay(options) {
 
     ctx.restore();
 
-    // Border
+    // border
     ctx.save();
     ctx.setTransform(1,0,0,1,0,0);
     ctx.strokeStyle = theme.border;
@@ -465,8 +466,6 @@ function createUnifiedOverlay(options) {
     anchorStartTime = null;
     recentFixes.length = 0;
 
-    // do not wipe existing drawn track unless you want a new session;
-    // distance/gain/loss will be reset when the anchor is established
     watchId = navigator.geolocation.watchPosition(
       handleFix,
       (err) => { readout.textContent = `GPS error: ${err.message || err}`; },
@@ -516,11 +515,7 @@ function createUnifiedOverlay(options) {
     updateToolbarState();
     try {
       const res = await Promise.resolve(onSaveTrail({
-        name,
-        note,
-        createdAt,
-        durationMs,
-        distanceMeters,
+        name, note, createdAt, durationMs, distanceMeters,
         elevationGainMeters: cumulativeGain,
         elevationLossMeters: cumulativeLoss,
         points
@@ -551,7 +546,6 @@ function createUnifiedOverlay(options) {
       lat: position.coords.latitude,
       lng: position.coords.longitude,
       accuracy: position.coords.accuracy,
-      // NEW: vertical info (if available)
       altitude: Number.isFinite(position.coords.altitude) ? position.coords.altitude : null,
       altitudeAccuracy: Number.isFinite(position.coords.altitudeAccuracy) ? position.coords.altitudeAccuracy : null,
       timestamp,
@@ -562,7 +556,6 @@ function createUnifiedOverlay(options) {
     if (!anchorPoint) {
       if (!anchorStartTime) anchorStartTime = timestamp;
 
-      // keep a small window of initial samples (with altitude if present)
       recentFixes.push(next);
       if (recentFixes.length > REQUIRED_ANCHOR_SAMPLES * 3) recentFixes.shift();
 
@@ -574,7 +567,6 @@ function createUnifiedOverlay(options) {
       const accValues = sampleSet.map(s => s.accuracy).filter(Number.isFinite);
       const avgAcc = accValues.length ? accValues.reduce((s,v)=>s+v,0)/accValues.length : next.accuracy;
 
-      // average altitude if we have some
       const altValues = sampleSet.map(s => s.altitude).filter(Number.isFinite);
       const altAccValues = sampleSet.map(s => s.altitudeAccuracy).filter(Number.isFinite);
       const avgAlt = altValues.length ? altValues.reduce((s,v)=>s+v,0)/altValues.length : null;
@@ -639,14 +631,14 @@ function createUnifiedOverlay(options) {
           const dAlt = nextAlt - prevAlt;
           if (Math.abs(dAlt) >= MIN_ELEV_DELTA_METERS) {
             if (dAlt > 0) cumulativeGain += dAlt;
-            else cumulativeLoss += -dAlt; // abs
+            else cumulativeLoss += -dAlt;
           }
         }
       }
 
       if (!trackStartTime) trackStartTime = next.timestamp;
     } else {
-      // Optional: count vertical-only changes even if horizontal displacement is tiny
+      // Vertical-only changes even if horizontal displacement is tiny
       if (prev && Number.isFinite(prevAlt) && Number.isFinite(nextAlt) && altAccOk) {
         const dAlt = nextAlt - prevAlt;
         if (Math.abs(dAlt) >= MIN_ELEV_DELTA_METERS) {
@@ -672,15 +664,11 @@ function createUnifiedOverlay(options) {
   }
 
   // -------- UI helpers
-
   function updateToolbarState() {
-    // Start/Pause text
     btnStartPause.textContent = trackingActive ? "Pause Tracking" : "Start Tracking";
-    // Save availability
     const canSave = !!(recordTrail && track.length >= 2 && !saveInProgress);
     btnSave.disabled = !canSave;
     btnSave.textContent = saveInProgress ? "Saving..." : "Save";
-    // Follow button text
     updateFollowButton();
   }
 
@@ -699,7 +687,6 @@ function createUnifiedOverlay(options) {
     } else {
       headingEl.textContent = "N/A";
     }
-    // Elevation
     if (elevEl) {
       const fmt = (m) => (m < 100 ? m.toFixed(1) : m.toFixed(0));
       elevEl.textContent = `+${fmt(cumulativeGain)} m / -${fmt(cumulativeLoss)} m`;
@@ -709,7 +696,6 @@ function createUnifiedOverlay(options) {
   function updateReadout() {
     if (!readout) return;
     if (!trackingActive) {
-      // Show anchor distance summary if anchor + points exist
       if (scene.anchor && scene.points.length) {
         const withDists = scene.points.filter(p => Number.isFinite(p.anchorDistanceMeters));
         if (withDists.length) {
@@ -728,7 +714,6 @@ function createUnifiedOverlay(options) {
       return;
     }
 
-    // Tracking active
     if (!anchorPoint) {
       const count = recentFixes.length;
       readout.textContent = count > 1 ? `Locking GPS… ${count} samples` : "Locking GPS…";
@@ -749,13 +734,11 @@ function createUnifiedOverlay(options) {
 }
 
 // ------------- Shared helpers -------------
-
 function normalizeInput(input) {
   if (Array.isArray(input)) return { points: input };
   if (input && typeof input === "object") return input;
   return {};
 }
-
 function toRad(v){ return (v * Math.PI) / 180; }
 
 function formatDistance(meters, unitsPref) {
@@ -765,7 +748,6 @@ function formatDistance(meters, unitsPref) {
   }
   return `${Math.round(meters)} m`;
 }
-
 function formatDuration(ms) {
   if (!Number.isFinite(ms) || ms <= 0) return "0s";
   const s = Math.floor(ms/1000);
@@ -776,7 +758,6 @@ function formatDuration(ms) {
   if (m>0) return `${m}m ${sec}s`;
   return `${sec}s`;
 }
-
 function formatPointLabel(point, maxLength = 26) {
   if (!point) return "";
   const raw = typeof point.note === "string" ? point.note.trim() : "";
@@ -784,7 +765,6 @@ function formatPointLabel(point, maxLength = 26) {
   if (raw.length <= maxLength) return raw;
   return `${raw.slice(0, maxLength - 1)}…`;
 }
-
 function getTheme() {
   const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
   if (prefersDark) {
