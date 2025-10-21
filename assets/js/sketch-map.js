@@ -15,7 +15,7 @@ export default openSketchMap;
 
 export function openSketchMapOverlay(input) {
   const opts = normalizeInput(input);
-  if (hasTarget(opts)) {
+  if (opts.recordTrail || hasTarget(opts)) {
     return openNavigateOverlay(opts);
   }
   return openPlotOverlay(opts);
@@ -26,24 +26,47 @@ export function openSketchMapOverlay(input) {
 const MAX_TRACK_POINTS = 1500;
 const MIN_TRACK_DELTA_METERS = 3;
 
-function openNavigateOverlay({ target, liveTrack = true, follow = true }) {
-  if (!hasTarget({ target })) {
+function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTrail = false, onSaveTrail = null }) {
+  const hasTargetPoint = hasTarget({ target });
+  if (!recordTrail && !hasTargetPoint) {
     throw new Error("openNavigateOverlay requires a target with lat/lng.");
   }
 
-  const targetPoint = {
-    lat: Number(target.lat),
-    lng: Number(target.lng),
-    note: typeof target.note === "string" && target.note.trim() ? target.note.trim() : "Target",
-  };
+  const targetPoint = hasTargetPoint
+    ? {
+        lat: Number(target.lat),
+        lng: Number(target.lng),
+        note: typeof target.note === "string" && target.note.trim() ? target.note.trim() : "Target",
+      }
+    : null;
+
+  const title = recordTrail ? "Track recorder" : "Sketch map";
+  const legendHtml = recordTrail
+    ? `<div class="sketch-legend">
+         <span class="dot me"></span> You
+         <span class="line path"></span> Track
+       </div>`
+    : `<div class="sketch-legend">
+         <span class="dot me"></span> You
+         <span class="dot target"></span> Target
+         <span class="line path"></span> Track
+       </div>`;
+  const statsHtml = recordTrail
+    ? `<div class="sketch-stats">
+         <div><span class="label">Distance</span> <span id="sketch-distance">0 m</span></div>
+         <div><span class="label">Avg speed</span> <span id="sketch-speed">0 km/h</span></div>
+         <div><span class="label">Direction</span> <span id="sketch-heading">N/A</span></div>
+       </div>`
+    : "";
 
   const overlay = document.createElement("div");
   overlay.className = "sketch-overlay";
   overlay.innerHTML = `
     <div class="sketch-panel" role="dialog" aria-modal="true" aria-label="Sketch map">
       <header class="sketch-header">
-        <h2>Sketch map</h2>
+        <h2>${title}</h2>
         <div class="sketch-actions">
+          ${recordTrail ? '<button class="btn btn-outline sketch-save">Save track</button>' : ""}
           <button class="btn btn-outline sketch-toggle-follow">${follow ? "Unpin me" : "Follow me"}</button>
           <button class="btn btn-outline sketch-fit">Fit</button>
           <button class="btn btn-outline sketch-close">Close</button>
@@ -51,11 +74,8 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true }) {
       </header>
       <div class="sketch-body">
         <canvas id="sketch-canvas" aria-label="Sketch map canvas"></canvas>
-        <div class="sketch-legend">
-          <span class="dot me"></span> You
-          <span class="dot target"></span> Target
-          <span class="line path"></span> Track
-        </div>
+        ${legendHtml}
+        ${statsHtml}
         <div class="sketch-readout" id="sketch-readout">Waiting for GPS fix...</div>
       </div>
     </div>
@@ -77,6 +97,9 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true }) {
     .dot.me{background:#2563eb}
     .dot.target{background:#f97316}
     .line.path{display:inline-block;width:22px;height:0;border-top:3px solid #22c55e;border-radius:2px}
+    .sketch-stats{display:grid;gap:.4rem;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));font-size:.95rem;opacity:.9}
+    .sketch-stats .label{display:block;font-weight:700;letter-spacing:.02em;color:#475569}
+    @media (prefers-color-scheme: dark){.sketch-stats .label{color:#cbd5f5}}
     .sketch-readout{font-family:ui-monospace,monospace;font-size:.95rem;opacity:.9}
     .sketch-actions .btn{padding:.55rem 1rem;font-size:1rem;border-radius:14px;font-weight:600;border-width:2px;background:rgba(37,99,235,0.12);color:#1d4ed8;border-color:rgba(37,99,235,0.55);box-shadow:0 6px 16px rgba(37,99,235,0.25)}
     .sketch-actions .btn.sketch-close{color:#dc2626;border-color:rgba(220,38,38,0.5);background:rgba(220,38,38,0.12);box-shadow:0 6px 16px rgba(220,38,38,0.2)}
@@ -85,6 +108,7 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true }) {
     @media (prefers-color-scheme: dark){
       .sketch-actions .btn{background:rgba(96,165,250,0.22);color:#e0f2fe;border-color:rgba(191,219,254,0.65);box-shadow:0 8px 20px rgba(59,130,246,0.35)}
       .sketch-actions .btn.sketch-close{color:#fecaca;border-color:rgba(248,113,113,0.55);background:rgba(248,113,113,0.22);box-shadow:0 8px 20px rgba(248,113,113,0.3)}
+      .sketch-stats .label{color:#e2e8f0}
     }
     @media (hover:none){
       .sketch-actions .btn{border-color:rgba(37,99,235,0.75);background:rgba(37,99,235,0.2)}
@@ -100,13 +124,53 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true }) {
   const btnClose = overlay.querySelector(".sketch-close");
   const btnFollow = overlay.querySelector(".sketch-toggle-follow");
   const btnFit = overlay.querySelector(".sketch-fit");
+  const btnSave = recordTrail ? overlay.querySelector(".sketch-save") : null;
+  const distanceEl = recordTrail ? overlay.querySelector("#sketch-distance") : null;
+  const speedEl = recordTrail ? overlay.querySelector("#sketch-speed") : null;
+  const headingEl = recordTrail ? overlay.querySelector("#sketch-heading") : null;
 
   const camera = { scale: 1, offsetX: 0, offsetY: 0, dpr: 1 };
   let followMe = !!follow;
-  let origin = { lat: targetPoint.lat, lng: targetPoint.lng };
+  let origin = targetPoint ? { lat: targetPoint.lat, lng: targetPoint.lng } : { lat: 0, lng: 0 };
   let me = null;
   const track = [];
   let watchId = null;
+  let trackStartTime = null;
+  let lastHeading = null;
+  let lastFixTimestamp = null;
+  let cumulativeDistance = 0;
+  const saveCallback = typeof onSaveTrail === "function" ? onSaveTrail : null;
+  let saveInProgress = false;
+
+  const formatDistance = (meters) => {
+    if (!Number.isFinite(meters) || meters <= 0) return "0 m";
+    if (meters < 1000) return `${meters < 100 ? meters.toFixed(1) : meters.toFixed(0)} m`;
+    return `${(meters / 1000).toFixed(2)} km`;
+  };
+
+  const formatDuration = (ms) => {
+    if (!Number.isFinite(ms) || ms <= 0) return "0s";
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    if (minutes > 0) return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
+  };
+
+  const updateStats = () => {
+    if (!recordTrail || !distanceEl || !speedEl || !headingEl) return;
+    distanceEl.textContent = formatDistance(cumulativeDistance);
+    const elapsedMs = trackStartTime && lastFixTimestamp ? Math.max(0, lastFixTimestamp - trackStartTime) : 0;
+    const avgSpeed = elapsedMs > 0 ? (cumulativeDistance / (elapsedMs / 1000)) * 3.6 : 0;
+    speedEl.textContent = `${avgSpeed.toFixed(avgSpeed >= 10 ? 1 : 2)} km/h`;
+    if (lastHeading && Number.isFinite(lastHeading.bearingDegrees)) {
+      headingEl.textContent = `${lastHeading.bearingDegrees.toFixed(0)}\u00B0 (${lastHeading.compass})`;
+    } else {
+      headingEl.textContent = "N/A";
+    }
+  };
 
   const resizeObserver = window.ResizeObserver
     ? new ResizeObserver(() => {
@@ -246,6 +310,19 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true }) {
   }
 
   function updateReadout() {
+    if (!readout) return;
+    if (recordTrail) {
+      if (!me) {
+        readout.textContent = "Waiting for GPS fix...";
+        return;
+      }
+      const accuracyText = Number.isFinite(me.accuracy) ? `\u00B1${me.accuracy.toFixed(0)} m` : "accuracy n/a";
+      const elapsedMs = trackStartTime && lastFixTimestamp ? Math.max(0, lastFixTimestamp - trackStartTime) : 0;
+      const elapsedText = formatDuration(elapsedMs);
+      const pointsText = track.length || (me ? 1 : 0);
+      readout.textContent = `Accuracy ${accuracyText} \u2022 Elapsed ${elapsedText} \u2022 Points ${pointsText}`;
+      return;
+    }
     if (!me || !targetPoint) {
       readout.textContent = "Waiting for GPS fix...";
       return;
@@ -256,22 +333,42 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true }) {
   }
 
   function handleFix(position) {
+    const timestamp = Number.isFinite(position.timestamp) ? position.timestamp : Date.now();
     const next = {
       lat: position.coords.latitude,
       lng: position.coords.longitude,
       accuracy: position.coords.accuracy,
+      timestamp,
     };
 
-    if (!me || haversineMeters(me, next) >= MIN_TRACK_DELTA_METERS) {
-      track.push({ lat: next.lat, lng: next.lng });
+    const displacement = me ? haversineMeters(me, next) : Infinity;
+    const shouldRecord = !me || displacement >= MIN_TRACK_DELTA_METERS;
+
+    if (shouldRecord) {
+      const previous = track.length ? track[track.length - 1] : null;
+      track.push({ lat: next.lat, lng: next.lng, accuracy: next.accuracy, timestamp: next.timestamp });
       if (track.length > MAX_TRACK_POINTS) {
         track.splice(0, track.length - MAX_TRACK_POINTS);
       }
+      if (recordTrail && previous) {
+        const segment = haversineMeters(previous, next);
+        if (Number.isFinite(segment)) cumulativeDistance += segment;
+        lastHeading = distanceAndDirection(previous, next);
+      }
+      if (recordTrail && !trackStartTime) {
+        trackStartTime = next.timestamp;
+      }
+    }
+
+    if (recordTrail && !trackStartTime) {
+      trackStartTime = next.timestamp;
     }
 
     me = next;
+    lastFixTimestamp = next.timestamp;
     draw(followMe);
     updateReadout();
+    updateStats();
   }
 
   function handleFixError(err) {
@@ -301,11 +398,54 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true }) {
       draw(true);
     }
   });
+  btnSave?.addEventListener("click", async () => {
+    if (saveInProgress) return;
+    if (!track.length) {
+      alert("No GPS points recorded yet. Keep recording a bit longer before saving.");
+      return;
+    }
+    const defaultName = `Track ${new Date(trackStartTime || Date.now()).toLocaleString()}`;
+    const input = window.prompt("Name this track", defaultName);
+    if (input === null) return;
+    const name = input.trim() || defaultName;
+    const createdAt = trackStartTime || Date.now();
+    const durationMs = Math.max(0, (lastFixTimestamp ?? createdAt) - (trackStartTime ?? createdAt));
+    const distanceMeters = cumulativeDistance;
+    const points = track.map((p) => ({
+      lat: p.lat,
+      lng: p.lng,
+      timestamp: p.timestamp,
+      accuracy: p.accuracy,
+    }));
+
+    saveInProgress = true;
+    btnSave.disabled = true;
+    btnSave.textContent = "Saving...";
+    try {
+      const result = saveCallback ? await Promise.resolve(saveCallback({ name, createdAt, durationMs, distanceMeters, points })) : true;
+      if (result === false) {
+        btnSave.disabled = false;
+        btnSave.textContent = "Save track";
+        saveInProgress = false;
+        return;
+      }
+      cleanup();
+    } catch (error) {
+      console.error("Track save failed:", error);
+      alert(`Unable to save track: ${error?.message || error}`);
+      btnSave.disabled = false;
+      btnSave.textContent = "Save track";
+      saveInProgress = false;
+    } finally {
+      saveInProgress = false;
+    }
+  });
 
   // Initial render.
   resizeCanvas();
   draw(true);
   updateReadout();
+  updateStats();
 
   if (liveTrack && navigator.geolocation) {
     watchId = navigator.geolocation.watchPosition(

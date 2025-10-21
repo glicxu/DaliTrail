@@ -17,8 +17,10 @@ import {
 } from "/assets/js/utils.js";
 
 const LOCATIONS_KEY = "dalitrail:locations";
+const TRACKS_KEY = "dalitrail:tracks";
 const MAX_SAMPLES = 5;
 const SAMPLE_WINDOW_MS = 4500;
+const MAX_SAVED_TRACKS = 25;
 
 // DOM handles (late-resolved inside init to avoid early nulls)
 let locationStatusText;
@@ -26,12 +28,15 @@ let latestLocationCard;
 let openLocationHistoryBtn;
 let locationsList;
 let locationHistoryStatus;
+let savedTracksStrip;
+let savedTracksEmpty;
 
 // Optional Sun/Moon card
 let sunCard, sunRiseEl, sunSetEl, moonCard, moonRiseEl, moonSetEl, moonPhaseEl;
 
 let isCapturingLocation = false;
 let savedLocations = [];
+let savedTracks = [];
 const selectedLocationIds = new Set();
 
 // ----- utils -----
@@ -108,6 +113,189 @@ export const loadSavedLocations = () => {
   } catch { savedLocations = []; }
 };
 
+// ----- tracks persistence & helpers -----
+const persistSavedTracks = () => {
+  try {
+    localStorage.setItem(TRACKS_KEY, JSON.stringify(savedTracks));
+  } catch (error) {
+    console.warn("Unable to persist tracks:", error);
+  }
+};
+
+const normalizeTrackPoints = (points) => {
+  if (!Array.isArray(points)) return [];
+  const normalized = [];
+  for (const pt of points) {
+    const lat = Number(pt?.lat);
+    const lng = Number(pt?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    const entry = { lat, lng };
+    if (Number.isFinite(pt.timestamp)) entry.timestamp = Number(pt.timestamp);
+    if (Number.isFinite(pt.accuracy)) entry.accuracy = Number(pt.accuracy);
+    normalized.push(entry);
+  }
+  return normalized;
+};
+
+const loadSavedTracks = () => {
+  try {
+    const raw = localStorage.getItem(TRACKS_KEY);
+    if (!raw) {
+      savedTracks = [];
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) throw new Error("bad tracks");
+    savedTracks = parsed
+      .map((entry) => {
+        const points = normalizeTrackPoints(entry.points);
+        if (!points.length) return null;
+        const createdAt = Number(entry.createdAt) || (points[0]?.timestamp ?? Date.now());
+        return {
+          id: typeof entry.id === "string" ? entry.id : `track-${createdAt}-${Math.random().toString(16).slice(2, 8)}`,
+          name: typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : "Saved track",
+          createdAt,
+          distanceMeters: Number(entry.distanceMeters) >= 0 ? Number(entry.distanceMeters) : 0,
+          durationMs: Number(entry.durationMs) >= 0 ? Number(entry.durationMs) : 0,
+          points,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, MAX_SAVED_TRACKS);
+  } catch (error) {
+    console.warn("Unable to load saved tracks:", error);
+    savedTracks = [];
+  }
+};
+
+const formatDistanceShort = (meters) => {
+  if (!Number.isFinite(meters) || meters <= 0) return "0 m";
+  if (meters < 1000) return `${meters < 100 ? meters.toFixed(1) : meters.toFixed(0)} m`;
+  const km = meters / 1000;
+  return `${km < 10 ? km.toFixed(2) : km.toFixed(1)} km`;
+};
+
+const formatDurationShort = (ms) => {
+  if (!Number.isFinite(ms) || ms <= 0) return "0s";
+  const totalSeconds = Math.round(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+};
+
+const updateLocationStatusSummary = ({ force = false } = {}) => {
+  if (!locationStatusText) return;
+  const current = (locationStatusText.textContent || "").trim();
+  const defaultMessages = new Set([
+    "",
+    "No locations saved yet.",
+    "No saved locations yet.",
+    "No locations or tracks saved yet.",
+  ]);
+  if (!force && !defaultMessages.has(current)) return;
+
+  const locationCount = savedLocations.length;
+  const trackCount = savedTracks.length;
+  if (!locationCount && !trackCount) {
+    locationStatusText.textContent = "No locations or tracks saved yet.";
+    return;
+  }
+  const parts = [];
+  if (locationCount) parts.push(`${locationCount} saved location${locationCount === 1 ? "" : "s"}`);
+  if (trackCount) parts.push(`${trackCount} saved track${trackCount === 1 ? "" : "s"}`);
+  locationStatusText.textContent = parts.join(" • ");
+};
+
+const renderSavedTracks = () => {
+  if (!savedTracksStrip || !savedTracksEmpty) return;
+  savedTracksStrip.innerHTML = "";
+  if (!savedTracks.length) {
+    savedTracksStrip.setAttribute("hidden", "");
+    savedTracksEmpty.hidden = false;
+    updateLocationStatusSummary();
+    return;
+  }
+
+  savedTracksStrip.removeAttribute("hidden");
+  savedTracksEmpty.hidden = true;
+
+  savedTracks.forEach((track) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "saved-track-card";
+    btn.dataset.trackId = track.id;
+
+    const name = document.createElement("span");
+    name.className = "track-name";
+    name.textContent = track.name;
+    btn.appendChild(name);
+
+    const meta = document.createElement("span");
+    meta.className = "track-meta";
+    meta.textContent = `${formatDistanceShort(track.distanceMeters)} • ${formatDurationShort(track.durationMs)}`;
+    btn.appendChild(meta);
+
+    savedTracksStrip.appendChild(btn);
+  });
+
+  updateLocationStatusSummary();
+};
+
+const saveRecordedTrack = (payload) => {
+  if (!payload || !Array.isArray(payload.points) || !payload.points.length) {
+    alert("Unable to save track: no GPS points recorded yet.");
+    return false;
+  }
+
+  const points = normalizeTrackPoints(payload.points);
+  if (!points.length) {
+    alert("Unable to save track: no valid GPS coordinates were captured.");
+    return false;
+  }
+
+  const createdAt = Number(payload.createdAt) || (points[0]?.timestamp ?? Date.now());
+  const entry = {
+    id: `track-${createdAt}-${Math.random().toString(16).slice(2, 8)}`,
+    name: typeof payload.name === "string" && payload.name.trim() ? payload.name.trim() : `Track ${new Date(createdAt).toLocaleString()}`,
+    createdAt,
+    distanceMeters: Number(payload.distanceMeters) >= 0 ? Number(payload.distanceMeters) : 0,
+    durationMs: Number(payload.durationMs) >= 0 ? Number(payload.durationMs) : 0,
+    points,
+  };
+
+  savedTracks = [entry, ...savedTracks].slice(0, MAX_SAVED_TRACKS);
+  persistSavedTracks();
+  renderSavedTracks();
+  if (locationStatusText) locationStatusText.textContent = `Track saved as ${entry.name}.`;
+  return true;
+};
+
+const openSavedTrack = async (track) => {
+  if (!track || !Array.isArray(track.points) || !track.points.length) return;
+  try {
+    const mod = await import("/assets/js/sketch-map.js");
+    const open = mod.openSketchMap || mod.openSketchMapOverlay || mod.default;
+    if (typeof open !== "function") throw new Error("Sketch map unavailable");
+    const connections =
+      track.points.length > 1
+        ? track.points.map((_, idx) => (idx === 0 ? null : { from: idx - 1, to: idx })).filter(Boolean)
+        : [];
+    open({
+      points: track.points,
+      connections,
+      labelDistance: false,
+      distanceMode: "path",
+    });
+  } catch (error) {
+    console.error("Unable to open saved track:", error);
+    alert("Unable to open saved track.");
+  }
+};
+
 // ----- Sun/Moon cards -----
 function updateSunCardFor(lat, lng, date = new Date()) {
   if (!sunCard || !sunRiseEl || !sunSetEl) return;
@@ -169,6 +357,7 @@ function ensureActionButtons(locationView) {
   row.className = "actions-row";
   row.innerHTML = `
     <button id="btn-record-position" class="btn btn-primary">Record position</button>
+    <button id="btn-record-track" class="btn btn-outline">Record track</button>
     <button id="btn-enter-coords" class="btn btn-outline">Enter GPS coordinates</button>
     <button id="btn-import-kml" class="btn btn-outline">Import KML</button>
   `;
@@ -190,6 +379,7 @@ function ensureActionButtons(locationView) {
 
   // wire buttons
   row.querySelector("#btn-record-position")?.addEventListener("click", onClickRecordPosition);
+  row.querySelector("#btn-record-track")?.addEventListener("click", onClickRecordTrack);
   row.querySelector("#btn-enter-coords")?.addEventListener("click", onClickEnterManual);
   
   
@@ -276,6 +466,33 @@ async function onClickRecordPosition() {
     }
   } catch (err) {
     if (stat) stat.textContent = `GPS error: ${err?.message || err}`;
+  }
+}
+
+async function onClickRecordTrack() {
+  if (!navigator.geolocation) { alert("Geolocation is not supported on this device."); return; }
+  if (!isSecure) { alert("Enable HTTPS (or use localhost) to access your location."); return; }
+
+  try {
+    const mod = await import("/assets/js/sketch-map.js");
+    const open =
+      typeof mod.openSketchMap === "function"
+        ? mod.openSketchMap
+        : typeof mod.openSketchMapOverlay === "function"
+          ? mod.openSketchMapOverlay
+          : typeof mod.default === "function"
+            ? mod.default
+            : null;
+    if (!open) throw new Error("Sketch map module missing export.");
+    open({
+      recordTrail: true,
+      liveTrack: true,
+      follow: true,
+      onSaveTrail: (trail) => saveRecordedTrack(trail),
+    });
+  } catch (error) {
+    console.error("Track recorder failed:", error);
+    alert(`Unable to start track recorder: ${error?.message || error}`);
   }
 }
 
@@ -1107,6 +1324,8 @@ function safeInit() {
     openLocationHistoryBtn = document.getElementById("open-location-history-btn");
     locationsList = document.getElementById("locations-list");
     locationHistoryStatus = document.getElementById("location-history-status");
+    savedTracksStrip = document.getElementById("saved-tracks-strip");
+    savedTracksEmpty = document.getElementById("saved-tracks-empty");
 
     sunCard = document.getElementById("sun-card");
     sunRiseEl = document.getElementById("sunrise-text");
@@ -1118,6 +1337,18 @@ function safeInit() {
 
     hideLegacyModeUI(locationView);
     ensureActionButtons(locationView);
+
+    if (savedTracksStrip) {
+      savedTracksStrip.addEventListener("click", (event) => {
+        const button = event.target?.closest?.("button.saved-track-card");
+        if (!(button instanceof HTMLButtonElement)) return;
+        const trackId = button.dataset.trackId;
+        if (!trackId) return;
+        const track = savedTracks.find((t) => t.id === trackId);
+        if (!track) return;
+        void openSavedTrack(track);
+      });
+    }
 
     // ✅ BIND LISTENERS NOW THAT ELEMENTS EXIST
     if (locationsList) {
@@ -1150,8 +1381,11 @@ function safeInit() {
     }
 
     loadSavedLocations();
+    loadSavedTracks();
     renderLatestLocation();
     renderLocationHistory();
+    renderSavedTracks();
+    updateLocationStatusSummary({ force: true });
   } catch (err) {
     // Fail gracefully so Home buttons still work
     console.error("location.js init failed:", err);

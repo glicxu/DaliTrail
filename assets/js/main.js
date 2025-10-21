@@ -206,6 +206,7 @@ const LOCATIONS_KEY = "dalitrail:locations";
 const NOTES_KEY = "dalitrail:notes";
 const EVENTS_KEY = "dalitrail:events";
 const TRAIL_SESSION_KEY = "dalitrail:session";
+const TRACKS_KEY = "dalitrail:tracks";
 let geonamesDatasets = [];
 let geonamesDatasetOptionsLoaded = false;
 let geonamesDatasetsFetched = false;
@@ -386,6 +387,7 @@ const createBackupSnapshot = () => {
       locations: readArrayFromStore(LOCATIONS_KEY),
       notes: readArrayFromStore(NOTES_KEY),
       events: readArrayFromStore(EVENTS_KEY),
+      tracks: readArrayFromStore(TRACKS_KEY),
       trailSession: readObjectFromStore(TRAIL_SESSION_KEY),
       geonames: {
         meta: readObjectFromStore(GEONAMES_META_KEY),
@@ -456,18 +458,22 @@ const restoreFromBackupSnapshot = (snapshot, mode = "replace") => {
   const incomingLocations = Array.isArray(data.locations) ? data.locations : [];
   const incomingNotes = Array.isArray(data.notes) ? data.notes : [];
   const incomingEvents = Array.isArray(data.events) ? data.events : [];
+  const incomingTracks = Array.isArray(data.tracks) ? data.tracks : [];
 
   const existingLocations = mode === "merge" ? readArrayFromStore(LOCATIONS_KEY) : [];
   const existingNotes = mode === "merge" ? readArrayFromStore(NOTES_KEY) : [];
   const existingEvents = mode === "merge" ? readArrayFromStore(EVENTS_KEY) : [];
+  const existingTracks = mode === "merge" ? readArrayFromStore(TRACKS_KEY) : [];
 
   const mergedLocations = mode === "merge" ? mergeArraysById(existingLocations, incomingLocations) : incomingLocations;
   const mergedNotes = mode === "merge" ? mergeArraysById(existingNotes, incomingNotes) : incomingNotes;
   const mergedEvents = mode === "merge" ? mergeArraysById(existingEvents, incomingEvents) : incomingEvents;
+  const mergedTracks = mode === "merge" ? mergeArraysById(existingTracks, incomingTracks) : incomingTracks;
 
   persistJsonOrRemove(LOCATIONS_KEY, mergedLocations);
   persistJsonOrRemove(NOTES_KEY, mergedNotes);
   persistJsonOrRemove(EVENTS_KEY, mergedEvents);
+  persistJsonOrRemove(TRACKS_KEY, mergedTracks);
 
   const existingTrailSession = mode === "merge" ? readObjectFromStore(TRAIL_SESSION_KEY) : null;
   const incomingTrailSession = data.trailSession && typeof data.trailSession === "object" ? data.trailSession : null;
@@ -523,6 +529,7 @@ const restoreFromBackupSnapshot = (snapshot, mode = "replace") => {
     locations: mergedLocations.length,
     notes: mergedNotes.length,
     events: mergedEvents.length,
+    tracks: mergedTracks.length,
     mode,
   };
 };
@@ -585,7 +592,7 @@ const handleBackupFileSelection = async () => {
     const verb = mode === "merge" ? "merged" : "restored";
     setBackupStatus(`Backup ${verb}. Reloading to apply changes...`);
     logAppEvent(
-      `Backup ${verb} (${summary.locations} locations, ${summary.notes} notes, ${summary.events} events).`
+      `Backup ${verb} (${summary.locations} locations, ${summary.notes} notes, ${summary.events} events, ${summary.tracks} tracks).`
     );
     window.setTimeout(() => window.location.reload(), 900);
   } catch (error) {
