@@ -40,11 +40,37 @@ let savedLocations = [];
 let savedTracks = [];
 const selectedLocationIds = new Set();
 
-// ----- utils -----
+/* ------------------------------------------------------------------------- */
+/* Sketch map module resolver (unified)                                      */
+/* ------------------------------------------------------------------------- */
+
+let _sketchModPromise = null;
+async function getSketchMapOpen() {
+  if (!_sketchModPromise) {
+    _sketchModPromise = import("/assets/js/sketch-map.js").then((mod) => {
+      const open =
+        typeof mod.openSketchMap === "function"
+          ? mod.openSketchMap
+          : typeof mod.default === "function"
+          ? mod.default
+          : null;
+      if (!open) throw new Error("Sketch map module missing an export.");
+      return open;
+    });
+  }
+  return _sketchModPromise;
+}
+
+/* ------------------------------------------------------------------------- */
+/* utils                                                                     */
+/* ------------------------------------------------------------------------- */
+
 const haversineDistance = (a, b) => haversineMeters(a, b);
 const sanitizeAltitude = (altitude) => (Number.isFinite(altitude) ? altitude : null);
 
-// ----- modal helpers -----
+/* ------------------------------------------------------------------------- */
+/* modal helpers                                                             */
+/* ------------------------------------------------------------------------- */
 function openModal({ title, html, onSave, saveText = "Save", onCancel }) {
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
@@ -96,7 +122,10 @@ function openModal({ title, html, onSave, saveText = "Save", onCancel }) {
   return overlay;
 }
 
-// ----- persistence -----
+/* ------------------------------------------------------------------------- */
+/* persistence: locations                                                    */
+/* ------------------------------------------------------------------------- */
+
 export const persistSavedLocations = () => {
   try { localStorage.setItem(LOCATIONS_KEY, JSON.stringify(savedLocations)); }
   catch (error) { locationStatusText && (locationStatusText.textContent = `Unable to save location: ${error.message}`); }
@@ -114,7 +143,10 @@ export const loadSavedLocations = () => {
   } catch { savedLocations = []; }
 };
 
-// ----- tracks persistence & helpers -----
+/* ------------------------------------------------------------------------- */
+/* tracks persistence & helpers                                              */
+/* ------------------------------------------------------------------------- */
+
 const persistSavedTracks = () => {
   try {
     localStorage.setItem(TRACKS_KEY, JSON.stringify(savedTracks));
@@ -152,15 +184,15 @@ const loadSavedTracks = () => {
         const points = normalizeTrackPoints(entry.points);
         if (!points.length) return null;
         const createdAt = Number(entry.createdAt) || (points[0]?.timestamp ?? Date.now());
-      return {
-        id: typeof entry.id === "string" ? entry.id : `track-${createdAt}-${Math.random().toString(16).slice(2, 8)}`,
-        name: typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : "Saved track",
-        note: typeof entry.note === "string" ? entry.note.trim() : "",
-        createdAt,
-        distanceMeters: Number(entry.distanceMeters) >= 0 ? Number(entry.distanceMeters) : 0,
-        durationMs: Number(entry.durationMs) >= 0 ? Number(entry.durationMs) : 0,
-        points,
-      };
+        return {
+          id: typeof entry.id === "string" ? entry.id : `track-${createdAt}-${Math.random().toString(16).slice(2, 8)}`,
+          name: typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : "Saved track",
+          note: typeof entry.note === "string" ? entry.note.trim() : "",
+          createdAt,
+          distanceMeters: Number(entry.distanceMeters) >= 0 ? Number(entry.distanceMeters) : 0,
+          durationMs: Number(entry.durationMs) >= 0 ? Number(entry.durationMs) : 0,
+          points,
+        };
       })
       .filter(Boolean)
       .sort((a, b) => b.createdAt - a.createdAt)
@@ -233,35 +265,35 @@ const renderTrackHistory = () => {
       item.dataset.id = track.id;
 
       const card = document.createElement("div");
-    card.className = "location-card";
+      card.className = "location-card";
 
-    const meta = document.createElement("div");
-    meta.className = "meta";
-    const timestamp = formatTimestamp(track.createdAt);
-    const summary = `${formatDistanceShort(track.distanceMeters)} \u2022 ${formatDurationShort(track.durationMs)} \u2022 ${track.points.length} point${track.points.length === 1 ? "" : "s"}`;
-    meta.innerHTML = `
-      <span>${timestamp}</span>
-      <span>${summary}</span>
-    `;
-    card.appendChild(meta);
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      const timestamp = formatTimestamp(track.createdAt);
+      const summary = `${formatDistanceShort(track.distanceMeters)} \u2022 ${formatDurationShort(track.durationMs)} \u2022 ${track.points.length} point${track.points.length === 1 ? "" : "s"}`;
+      meta.innerHTML = `
+        <span>${timestamp}</span>
+        <span>${summary}</span>
+      `;
+      card.appendChild(meta);
 
-    if (track.note) {
-      const note = document.createElement("p");
-      note.className = "note";
-      note.textContent = track.note;
-      card.appendChild(note);
-    }
+      if (track.note) {
+        const note = document.createElement("p");
+        note.className = "note";
+        note.textContent = track.note;
+        card.appendChild(note);
+      }
 
-    const actions = document.createElement("div");
-    actions.className = "actions";
-    actions.innerHTML = `
-      <button class="btn btn-primary" data-action="view">View</button>
-      <button class="btn btn-outline" data-action="delete">Delete</button>
-    `;
-    card.appendChild(actions);
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      actions.innerHTML = `
+        <button class="btn btn-primary" data-action="view">View</button>
+        <button class="btn btn-outline" data-action="delete">Delete</button>
+      `;
+      card.appendChild(actions);
 
-    item.appendChild(card);
-    tracksList.appendChild(item);
+      item.appendChild(card);
+      tracksList.appendChild(item);
     });
   }
 
@@ -309,21 +341,15 @@ const saveRecordedTrack = (payload) => {
   if (locationStatusText) locationStatusText.textContent = `Track saved as ${entry.name}.`;
   return true;
 };
+
 const openSavedTrack = async (track) => {
   if (!track || !Array.isArray(track.points) || !track.points.length) return;
   try {
-    const mod = await import("/assets/js/sketch-map.js");
-    const open = mod.openSketchMap || mod.openSketchMapOverlay || mod.default;
-    if (typeof open !== "function") throw new Error("Sketch map unavailable");
-    const connections =
-      track.points.length > 1
-        ? track.points.map((_, idx) => (idx === 0 ? null : { from: idx - 1, to: idx })).filter(Boolean)
-        : [];
+    const open = await getSketchMapOpen();
     open({
       points: track.points,
-      connections,
-      labelDistance: false,
-      distanceMode: "path",
+      liveTrack: false,
+      follow: false,
     });
   } catch (error) {
     console.error("Unable to open saved track:", error);
@@ -331,7 +357,10 @@ const openSavedTrack = async (track) => {
   }
 };
 
-// ----- Sun/Moon cards -----
+/* ------------------------------------------------------------------------- */
+/* Sun/Moon cards                                                            */
+/* ------------------------------------------------------------------------- */
+
 function updateSunCardFor(lat, lng, date = new Date()) {
   if (!sunCard || !sunRiseEl || !sunSetEl) return;
   const { sunrise, sunset, polar } = getSunTimes(lat, lng, date);
@@ -366,7 +395,10 @@ function updateMoonCardFor(lat, lng, date = new Date()) {
   moonPhaseEl.textContent = `${phase.phaseName} (${pct}% lit)${extra}`;
 }
 
-// ----- action buttons (safe injection) -----
+/* ------------------------------------------------------------------------- */
+/* action buttons (safe injection)                                           */
+/* ------------------------------------------------------------------------- */
+
 function hideLegacyModeUI(locationView) {
   // Only hide inside the location view
   locationView.querySelectorAll('.mode-option, .location-mode-view, #capture-location-btn').forEach((el) => {
@@ -375,17 +407,15 @@ function hideLegacyModeUI(locationView) {
 }
 
 function ensureActionButtons(locationView) {
-  // anchor inside location view only
   const anchor =
     locationView.querySelector(".location-controls") ||
     locationView.querySelector(".location-header") ||
-    locationView; // fallback to the section itself
+    locationView;
 
-  // Guard: must be an Element (not Document)
   if (!(anchor instanceof Element)) return;
 
   let row = locationView.querySelector("#location-actions-row");
-  if (row) return; // already added
+  if (row) return;
 
   row = document.createElement("div");
   row.id = "location-actions-row";
@@ -404,7 +434,7 @@ function ensureActionButtons(locationView) {
     style.id = "location-actions-row-style";
     style.textContent = `
       .actions-row{display:flex;gap:.5rem;overflow-x:auto;padding:0 0 .75rem;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch}
-      .actions-row::before,.actions-row::after{content:\"\";flex:0 0 .5rem}
+      .actions-row::before,.actions-row::after{content:"";flex:0 0 .5rem}
       .actions-row .btn{flex:0 0 auto;white-space:nowrap;padding:.5rem .8rem;border-radius:10px;border:1px solid currentColor;font-weight:700;scroll-snap-align:start}
       .actions-row::-webkit-scrollbar{height:6px}
       .actions-row::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:999px}
@@ -416,8 +446,7 @@ function ensureActionButtons(locationView) {
   row.querySelector("#btn-record-position")?.addEventListener("click", onClickRecordPosition);
   row.querySelector("#btn-record-track")?.addEventListener("click", onClickRecordTrack);
   row.querySelector("#btn-enter-coords")?.addEventListener("click", onClickEnterManual);
-  
-  
+
   // Ensure hidden KML input exists inside this view
   let kmlInput = locationView.querySelector("#kmlFileInput");
   if (!kmlInput) {
@@ -425,22 +454,25 @@ function ensureActionButtons(locationView) {
     kmlInput.type = "file";
     kmlInput.id = "kmlFileInput";
     kmlInput.accept = ".kml,.xml,application/vnd.google-earth.kml+xml,application/xml,text/xml";
-    kmlInput.hidden = true; // or: kmlInput.style.display = "none";
+    kmlInput.hidden = true;
     locationView.prepend(kmlInput);
   }
-  // After building the row and before returning, wire the button:
+
   row.querySelector("#btn-import-kml")?.addEventListener("click", async () => {
     await ensureKmlImportHook();
     const input = document.getElementById("kmlFileInput");
     if (input && input instanceof HTMLInputElement) {
-        input.click(); // Mobile Safari requires user gesture — this is one
+      input.click();
     } else {
-    alert("KML import setup failed.");
-  }
- });
+      alert("KML import setup failed.");
+    }
+  });
 }
 
-// ----- modals -----
+/* ------------------------------------------------------------------------- */
+/* modals: actions                                                           */
+/* ------------------------------------------------------------------------- */
+
 async function onClickRecordPosition() {
   if (!navigator.geolocation) { alert("Geolocation is not supported on this device."); return; }
   if (!isSecure) { alert("Enable HTTPS (or use localhost) to access your location."); return; }
@@ -480,7 +512,7 @@ async function onClickRecordPosition() {
       persistSavedLocations();
       renderLatestLocation();
       renderLocationHistory();
-      locationStatusText && (locationStatusText.textContent = `Location saved${entry.accuracy ? ` (~+/-${entry.accuracy.toFixed(1)} m)` : ""}.`);
+      locationStatusText && (locationStatusText.textContent = `Location saved${entry.accuracy ? ` (±${entry.accuracy.toFixed(0)} m)` : ""}.`);
       updateSunCardFor(entry.lat, entry.lng);
       updateMoonCardFor(entry.lat, entry.lng);
       return true;
@@ -508,37 +540,12 @@ async function onClickRecordTrack() {
   if (!navigator.geolocation) { alert("Geolocation is not supported on this device."); return; }
   if (!isSecure) { alert("Enable HTTPS (or use localhost) to access your location."); return; }
 
-  let initialAnchor = null;
   try {
-    const { fused } = await collectFusedLocation({ maxSamples: 5, windowMs: 3500 });
-    if (fused && Number.isFinite(fused.lat) && Number.isFinite(fused.lng)) {
-      initialAnchor = {
-        lat: fused.lat,
-        lng: fused.lng,
-        accuracy: fused.accuracy,
-        timestamp: fused.timestamp || Date.now(),
-      };
-    }
-  } catch (anchorError) {
-    console.warn("Track anchor collection failed:", anchorError);
-  }
-
-  try {
-    const mod = await import("/assets/js/sketch-map.js");
-    const open =
-      typeof mod.openSketchMap === "function"
-        ? mod.openSketchMap
-        : typeof mod.openSketchMapOverlay === "function"
-          ? mod.openSketchMapOverlay
-          : typeof mod.default === "function"
-            ? mod.default
-            : null;
-    if (!open) throw new Error("Sketch map module missing export.");
+    const open = await getSketchMapOpen();
     open({
       recordTrail: true,
       liveTrack: true,
       follow: true,
-      initialAnchor,
       onSaveTrail: (trail) => saveRecordedTrack(trail),
     });
   } catch (error) {
@@ -591,13 +598,16 @@ function onClickEnterManual() {
       persistSavedLocations();
       renderLatestLocation();
       renderLocationHistory();
-      locationStatusText && (locationStatusText.textContent = `Manual coordinates saved${Number.isFinite(accuracy) ? ` (~+/-${accuracy.toFixed(1)} m)` : ""}.`);
+      locationStatusText && (locationStatusText.textContent = `Manual coordinates saved${Number.isFinite(accuracy) ? ` (±${accuracy.toFixed(0)} m)` : ""}.`);
       return true;
     }
   });
 }
 
-// ----- render -----
+/* ------------------------------------------------------------------------- */
+/* render: latest + history                                                  */
+/* ------------------------------------------------------------------------- */
+
 export const renderLatestLocation = () => {
   if (!latestLocationCard) return;
   latestLocationCard.innerHTML = "";
@@ -621,7 +631,7 @@ export const renderLatestLocation = () => {
   meta.innerHTML = `
     <span>${formatTimestamp(latest.timestamp)}</span>
     <span>Lat: ${latest.lat.toFixed(6)} | Lng: ${latest.lng.toFixed(6)}</span>
-    ${Number.isFinite(latest.accuracy) ? `<span>Accuracy: +/-${latest.accuracy.toFixed(1)} m</span>` : ""}
+    ${Number.isFinite(latest.accuracy) ? `<span>Accuracy: ±${latest.accuracy.toFixed(1)} m</span>` : ""}
     <span>${formatElevation(latest.altitude)}</span>
   `;
   latestLocationCard.appendChild(meta);
@@ -692,7 +702,7 @@ export const renderLocationHistory = () => {
     meta.innerHTML = `
       <span>${formatTimestamp(entry.timestamp)}</span>
       <span>Lat: ${entry.lat.toFixed(6)} | Lng: ${entry.lng.toFixed(6)}</span>
-      ${Number.isFinite(entry.accuracy) ? `<span>Accuracy: +/-${entry.accuracy.toFixed(1)} m</span>` : ""}
+      ${Number.isFinite(entry.accuracy) ? `<span>Accuracy: ±${entry.accuracy.toFixed(1)} m</span>` : ""}
       <span>${formatElevation(entry.altitude)}</span>
     `;
     card.appendChild(meta);
@@ -707,30 +717,10 @@ export const renderLocationHistory = () => {
   };
 
   const groups = [
-    {
-      id: "today",
-      label: "Today",
-      test: (days) => days === 0,
-      entries: [],
-    },
-    {
-      id: "last-7",
-      label: "Last 7 days",
-      test: (days) => days > 0 && days < 7,
-      entries: [],
-    },
-    {
-      id: "last-30",
-      label: "Last 30 days",
-      test: (days) => days >= 7 && days < 30,
-      entries: [],
-    },
-    {
-      id: "older",
-      label: "Older",
-      test: () => true,
-      entries: [],
-    },
+    { id: "today",   label: "Today",        test: (days) => days === 0, entries: [] },
+    { id: "last-7",  label: "Last 7 days",  test: (days) => days > 0 && days < 7, entries: [] },
+    { id: "last-30", label: "Last 30 days", test: (days) => days >= 7 && days < 30, entries: [] },
+    { id: "older",   label: "Older",        test: () => true, entries: [] },
   ];
 
   savedLocations.forEach((entry) => {
@@ -932,9 +922,10 @@ function openEditLocationModal(entry) {
   }
 }
 
-// ⛔️ Removed the two top-level listeners; we'll bind them inside safeInit()
+/* ------------------------------------------------------------------------- */
+/* delegated listeners                                                        */
+/* ------------------------------------------------------------------------- */
 
-// Keep this delegated listener for history actions (already global)
 document.addEventListener("click", async (e) => {
   const btn = e.target;
   if (!(btn instanceof HTMLButtonElement)) return;
@@ -951,11 +942,8 @@ document.addEventListener("click", async (e) => {
     if (!selected.length) return;
     const points = selected.map((e) => ({ lat: e.lat, lng: e.lng, note: e.note || "", timestamp: e.timestamp }));
     try {
-      const mod = await import("/assets/js/sketch-map.js");
-      const open = mod.openSketchMap || mod.openSketchMapOverlay || mod.default;
-      if (!open) throw new Error("Sketch map module missing an export.");
-      try { open({ points, liveTrack: true, follow: false }); }
-      catch { open(points); }
+      const open = await getSketchMapOpen();
+      open({ points, liveTrack: true, follow: false });
     } catch (err) {
       console.error(err);
       alert("Unable to open sketch map.");
@@ -978,7 +966,10 @@ document.addEventListener("click", async (e) => {
   }
 });
 
-// ----- geolocation fusion -----
+/* ------------------------------------------------------------------------- */
+/* geolocation fusion                                                         */
+/* ------------------------------------------------------------------------- */
+
 const fuseLocationSamples = (samples) => {
   if (!samples.length) return null;
   const valid = samples.filter((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng));
@@ -1052,7 +1043,10 @@ const collectFusedLocation = ({ maxSamples = MAX_SAMPLES, windowMs = SAMPLE_WIND
     return { fused, samples };
   });
 
-// ----- actions -----
+/* ------------------------------------------------------------------------- */
+/* actions: open / share / delete                                            */
+/* ------------------------------------------------------------------------- */
+
 const openLocationMap = (entry) => {
   const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${entry.lat},${entry.lng}`)}`;
   window.open(url, "_blank", "noopener");
@@ -1159,7 +1153,7 @@ export const shareSelectedLocations = async () => {
 
   const lines = selected.map((e, i) => {
     const note = e.note ? `Note: ${e.note}\n` : "";
-    const acc = Number.isFinite(e.accuracy) ? `Accuracy: +/-${e.accuracy.toFixed(1)} m\n` : "";
+    const acc = Number.isFinite(e.accuracy) ? `Accuracy: ±${e.accuracy.toFixed(1)} m\n` : "";
     const elev = `${formatElevation(e.altitude)}\n`;
     return `#${i + 1} ${formatTimestamp(e.timestamp)}
 Lat: ${e.lat.toFixed(6)}
@@ -1173,7 +1167,7 @@ ${acc}${elev}${note}`;
     const placemarks = selected.map((e, i) => {
       const alt = Number.isFinite(e.altitude) ? e.altitude : 0;
       const elevText = formatElevation(e.altitude);
-      const acc = Number.isFinite(e.accuracy) ? `Accuracy: +/-${e.accuracy.toFixed(1)} m\n` : "";
+      const acc = Number.isFinite(e.accuracy) ? `Accuracy: ±${e.accuracy.toFixed(1)} m\n` : "";
       return `
     <Placemark>
       <name>Location ${i + 1}</name>
@@ -1255,7 +1249,10 @@ export const deleteSelectedLocations = () => {
   locationHistoryStatus && (locationHistoryStatus.textContent = `Deleted ${selected.length} location${selected.length === 1 ? "" : "s"}.`);
 };
 
-// ----- coordinate parser -----
+/* ------------------------------------------------------------------------- */
+/* coordinate parser                                                          */
+/* ------------------------------------------------------------------------- */
+
 const parseCoordinateInput = (raw) => {
   if (!raw) throw new Error("Enter coordinates to continue.");
   const normalized = raw.replace(/[()]/g, " ").replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/\s+/g, " ").trim();
@@ -1307,33 +1304,10 @@ const parseCoordinateInput = (raw) => {
   throw new Error("Unable to parse coordinates. Try decimal or degree format.");
 };
 
-// ----- KML import hook (unchanged) -----
-/* (function initKmlImport() {
-  const input = document.getElementById("kmlFileInput");
-  if (!input) return;
+/* ------------------------------------------------------------------------- */
+/* KML import hook (resilient)                                                */
+/* ------------------------------------------------------------------------- */
 
-  import("/assets/js/kml-import.js").then(({ attachKmlImport }) => {
-    attachKmlImport({
-      input,
-      getSaved: () => savedLocations.slice(),
-      mergeAndSave: (entries) => {
-        const key = (e) => `${round6(e.lat)},${round6(e.lng)}@${Math.floor(e.timestamp / 1000)}`;
-        const existing = new Set(savedLocations.map(key));
-        const fresh = entries.filter((e) => !existing.has(key(e)));
-        if (!fresh.length) return { added: 0, total: savedLocations.length };
-
-        savedLocations = [...fresh, ...savedLocations].sort((a, b) => b.timestamp - a.timestamp);
-        persistSavedLocations();
-        renderLatestLocation();
-        renderLocationHistory();
-        return { added: fresh.length, total: savedLocations.length };
-      },
-      onStatus: (msg) => { locationStatusText && (locationStatusText.textContent = msg); },
-    });
-  });
-})(); */
-
-// ----- KML import hook (resilient) -----
 let _kmlInitDone = false;
 async function ensureKmlImportHook() {
   if (_kmlInitDone) return;
@@ -1364,8 +1338,9 @@ async function ensureKmlImportHook() {
   }
 }
 
-
-// ----- SAFE INIT (prevents breaking other buttons) -----
+/* ------------------------------------------------------------------------- */
+/* SAFE INIT (prevents breaking other buttons)                                */
+/* ------------------------------------------------------------------------- */
 function safeInit() {
   try {
     const locationView = document.querySelector('.location-view[data-view="location"]');

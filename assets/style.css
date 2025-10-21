@@ -608,3 +608,55 @@ input:-webkit-autofill, textarea:-webkit-autofill {
   .back-btn { width: auto; align-self: flex-start; justify-content: flex-start; }
 }
 
+/* === Sketch Map: Horizontal Scrollable Toolbar ============================= */
+.sketch-actions{
+  display: flex;
+  gap: 8px;
+  align-items: center;
+
+  /* horizontal scroll row */
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  max-width: 100%;
+  padding: 6px 4px;
+
+  /* smooth touch scroll + snap */
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  overscroll-behavior-inline: contain;
+
+  /* subtle edge fade hint (optional) */
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+          mask-image: linear-gradient(90deg, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+}
+
+/* Buttons in the strip never wrap or shrink */
+.sketch-actions .btn{
+  flex: 0 0 auto;
+  white-space: nowrap;
+  scroll-snap-align: start;
+  min-width: 150px;
+}
+
+/* Minimal horizontal scrollbar (desktop) */
+.sketch-actions::-webkit-scrollbar{ height: 8px; }
+.sketch-actions::-webkit-scrollbar-thumb{
+  background: rgba(255,255,255,0.22);
+  border-radius: 6px;
+}
+.sketch-actions::-webkit-scrollbar-track{ background: transparent; }
+
+@supports (scrollbar-color: auto) {
+  .sketch-actions{
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.22) transparent;
+  }
+}
+
+/* Keyboard focus ring for the toolbar */
+.sketch-actions[tabindex="0"]{ outline: none; }
+.sketch-actions[tabindex="0"]:focus-visible{
+  box-shadow: 0 0 0 2px var(--focus-ring);
+  border-radius: 10px;
+}

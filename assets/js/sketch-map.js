@@ -1,90 +1,73 @@
 // /assets/js/sketch-map.js
-// Sketch map overlay used for two flows:
-// 1) Walk-to-location flow (live navigation with tracking).
-// 2) Plot selected saved locations (relative distances).
+// Unified Sketch Map overlay for DaliTrail.
+// Consistent toolbar: [Pin/Unpin me] [Start/Pause Tracking] [Save] [Close]
+// One setup function: controller.setData({ points, target, anchor })
+// - points: array of {lat, lng, note?, timestamp?}
+// - target: optional {lat, lng, note?}
+// - anchor: optional {lat, lng} => computes anchorDistanceMeters on each point
 
 import { haversineMeters, distanceAndDirection } from "/assets/js/utils.js";
 
-// Public API ------------------------------------------------------------------
+// ---------------- Public API ----------------
 
-export function openSketchMap(input) {
-  return openSketchMapOverlay(input);
+export function openSketchMap(input = {}) {
+  return createUnifiedOverlay(normalizeInput(input));
 }
 
 export default openSketchMap;
 
-export function openSketchMapOverlay(input) {
-  const opts = normalizeInput(input);
-  if (opts.recordTrail || hasTarget(opts)) {
-    return openNavigateOverlay(opts);
-  }
-  return openPlotOverlay(opts);
-}
-
-// ---------- Navigate Mode (Walk to a target) ---------------------------------
+// -------------- Constants / Config ----------
 
 const MAX_TRACK_POINTS = 1500;
 const MIN_TRACK_DELTA_METERS = 6;
+const MAX_TRACK_POINT_ACCURACY_METERS = 120;
 const REQUIRED_ANCHOR_SAMPLES = 3;
 const ANCHOR_MAX_ACCURACY_METERS = 45;
-const MAX_TRACK_POINT_ACCURACY_METERS = 120;
 const ANCHOR_TIMEOUT_MS = 3000;
 
-function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTrail = false, onSaveTrail = null, initialAnchor = null }) {
-  const hasTargetPoint = hasTarget({ target });
-  if (!recordTrail && !hasTargetPoint) {
-    throw new Error("openNavigateOverlay requires a target with lat/lng.");
-  }
+// -------------- Overlay ---------------------
 
-  const targetPoint = hasTargetPoint
-    ? {
-        lat: Number(target.lat),
-        lng: Number(target.lng),
-        note: typeof target.note === "string" && target.note.trim() ? target.note.trim() : "Target",
-      }
-    : null;
+function createUnifiedOverlay(options) {
+  // normalized user options
+  const {
+    recordTrail = false,
+    follow = true,
+    liveTrack = true,
+    onSaveTrail = null,
+  } = options;
 
-  const title = recordTrail ? "Track recorder" : "Sketch map";
-  const legendHtml = recordTrail
-    ? `<div class="sketch-legend">
-         <span class="dot me"></span> You
-         <span class="line path"></span> Track
-       </div>`
-    : `<div class="sketch-legend">
-         <span class="dot me"></span> You
-         <span class="dot target"></span> Target
-         <span class="line path"></span> Track
-       </div>`;
-  const statsHtml = recordTrail
-    ? `<div class="sketch-stats">
-         <div><span class="label">Distance</span> <span id="sketch-distance">0 m</span></div>
-         <div><span class="label">Avg speed</span> <span id="sketch-speed">0 km/h</span></div>
-         <div><span class="label">Direction</span> <span id="sketch-heading">N/A</span></div>
-       </div>`
-    : "";
-
+  // UI
   const overlay = document.createElement("div");
   overlay.className = "sketch-overlay";
   overlay.innerHTML = `
     <div class="sketch-panel" role="dialog" aria-modal="true" aria-label="Sketch map">
       <header class="sketch-header">
-        <h2>${title}</h2>
-        <div class="sketch-actions">
-          ${recordTrail ? '<button class="btn btn-outline sketch-save">Save track</button>' : ""}
-          <button class="btn btn-outline sketch-toggle-follow">${follow ? "Unpin me" : "Follow me"}</button>
-          <button class="btn btn-outline sketch-fit">Fit</button>
+        <h2>Sketch map</h2>
+        <div class="sketch-actions" role="toolbar" tabindex="0">
+          <button class="btn btn-outline sketch-toggle-follow">${follow ? "Unpin me" : "Pin me"}</button>
+          <button class="btn btn-outline sketch-startpause">Start Tracking</button>
+          <button class="btn btn-outline sketch-save" disabled>Save</button>
           <button class="btn btn-outline sketch-close">Close</button>
         </div>
       </header>
       <div class="sketch-body">
         <canvas id="sketch-canvas" aria-label="Sketch map canvas"></canvas>
-        ${legendHtml}
-        ${statsHtml}
+        <div class="sketch-legend">
+          <span class="dot me"></span> You
+          <span class="dot target"></span> Target
+          <span class="line path"></span> Track
+        </div>
+        <div class="sketch-stats">
+          <div><span class="label">Distance</span> <span id="sketch-distance">0 m</span></div>
+          <div><span class="label">Avg speed</span> <span id="sketch-speed">0 km/h</span></div>
+          <div><span class="label">Direction</span> <span id="sketch-heading">N/A</span></div>
+        </div>
         <div class="sketch-readout" id="sketch-readout">Waiting for GPS fix...</div>
       </div>
     </div>
   `;
 
+  // Inline styles limited to the overlay shell (layout/scroll is in style.css)
   const style = document.createElement("style");
   style.textContent = `
     .sketch-overlay{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);backdrop-filter:saturate(110%) blur(2px);display:flex;align-items:center;justify-content:center;padding:1rem}
@@ -92,7 +75,6 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTr
     @media (prefers-color-scheme: dark){.sketch-panel{background:#0f172a;color:#f8fafc;border-color:rgba(255,255,255,.12)}}
     .sketch-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem;gap:.75rem;flex-wrap:wrap}
     .sketch-header h2{margin:0;font-size:1.15rem;font-weight:700;letter-spacing:.2px;flex:1 1 auto;min-width:12rem}
-    .sketch-actions{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:flex-end;align-items:center}
     .sketch-body{display:grid;gap:.5rem}
     #sketch-canvas{display:block;width:min(92vw,900px);height:min(72vh,520px);background:#ffffff;border-radius:12px;border:1px solid rgba(0,0,0,.1)}
     @media (prefers-color-scheme: dark){#sketch-canvas{background:#0b1220;border-color:rgba(255,255,255,.1)}}
@@ -103,155 +85,223 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTr
     .line.path{display:inline-block;width:22px;height:0;border-top:3px solid #22c55e;border-radius:2px}
     .sketch-stats{display:grid;gap:.4rem;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));font-size:.95rem;opacity:.9}
     .sketch-stats .label{display:block;font-weight:700;letter-spacing:.02em;color:#475569}
-    @media (prefers-color-scheme: dark){.sketch-stats .label{color:#cbd5f5}}
+    @media (prefers-color-scheme: dark){.sketch-stats .label{color:#e2e8f0}}
     .sketch-readout{font-family:ui-monospace,monospace;font-size:.95rem;opacity:.9}
-    .sketch-actions .btn{padding:.5rem .9rem;font-size:.95rem;border-radius:12px;font-weight:600;border-width:2px;flex:0 1 160px;background:rgba(37,99,235,0.12);color:#1d4ed8;border-color:rgba(37,99,235,0.55);box-shadow:0 6px 16px rgba(37,99,235,0.25)}
-    .sketch-actions .btn.sketch-close{color:#dc2626;border-color:rgba(220,38,38,0.5);background:rgba(220,38,38,0.12);box-shadow:0 6px 16px rgba(220,38,38,0.2)}
-    .sketch-actions .btn:focus-visible{outline:3px solid rgba(59,130,246,0.75);outline-offset:2px}
-    .sketch-actions .btn:active{transform:scale(.97)}
-    @media (max-width: 640px){
-      .sketch-header{flex-direction:column;align-items:stretch}
-      .sketch-header h2{min-width:0}
-      .sketch-actions{width:100%;justify-content:stretch}
-      .sketch-actions .btn{flex:1 1 100%; width:100%}
-    }
+    .sketch-actions .btn{padding:.5rem .9rem;font-size:.95rem;border-radius:12px;font-weight:600;border-width:2px;box-shadow:none}
+    .sketch-actions .btn.sketch-close{color:#dc2626;border-color:rgba(220,38,38,0.5);background:rgba(220,38,38,0.12)}
     @media (prefers-color-scheme: dark){
       .sketch-actions .btn{background:rgba(96,165,250,0.22);color:#e0f2fe;border-color:rgba(191,219,254,0.65);box-shadow:0 8px 20px rgba(59,130,246,0.35)}
       .sketch-actions .btn.sketch-close{color:#fecaca;border-color:rgba(248,113,113,0.55);background:rgba(248,113,113,0.22);box-shadow:0 8px 20px rgba(248,113,113,0.3)}
       .sketch-stats .label{color:#e2e8f0}
     }
-    @media (hover:none){
-      .sketch-actions .btn{border-color:rgba(37,99,235,0.75);background:rgba(37,99,235,0.2)}
-      .sketch-actions .btn.sketch-close{border-color:rgba(220,38,38,0.7);background:rgba(220,38,38,0.22)}
-    }
   `;
   overlay.appendChild(style);
   document.body.appendChild(overlay);
 
+  // Elements
   const canvas = overlay.querySelector("#sketch-canvas");
   const ctx = canvas.getContext("2d");
   const readout = overlay.querySelector("#sketch-readout");
   const btnClose = overlay.querySelector(".sketch-close");
   const btnFollow = overlay.querySelector(".sketch-toggle-follow");
-  const btnFit = overlay.querySelector(".sketch-fit");
-  const btnSave = recordTrail ? overlay.querySelector(".sketch-save") : null;
-  const distanceEl = recordTrail ? overlay.querySelector("#sketch-distance") : null;
-  const speedEl = recordTrail ? overlay.querySelector("#sketch-speed") : null;
-  const headingEl = recordTrail ? overlay.querySelector("#sketch-heading") : null;
+  const btnStartPause = overlay.querySelector(".sketch-startpause");
+  const btnSave = overlay.querySelector(".sketch-save");
+  const distanceEl = overlay.querySelector("#sketch-distance");
+  const speedEl = overlay.querySelector("#sketch-speed");
+  const headingEl = overlay.querySelector("#sketch-heading");
 
-  const anchorSamples = [];
-  let anchorStartTime = null;
-  let anchorPoint = null;
+  // State
   const camera = { scale: 1, offsetX: 0, offsetY: 0, dpr: 1 };
   let followMe = !!follow;
-  let origin = targetPoint ? { lat: targetPoint.lat, lng: targetPoint.lng } : { lat: 0, lng: 0 };
-  let me = null;
+
+  // "Scene" data users can update via controller.setData(...)
+  let scene = {
+    points: [],           // [{lat,lng,note?,timestamp?, anchorDistanceMeters?}]
+    target: null,         // {lat,lng,note?}
+    anchor: null          // {lat,lng}
+  };
+
+  // Live tracking
+  const recentFixes = [];
   const track = [];
+  let me = null;
   let watchId = null;
+  let trackingActive = false;
+  let anchorPoint = null;
+  let anchorStartTime = null;
   let trackStartTime = null;
-  let lastHeading = null;
   let lastFixTimestamp = null;
+  let lastHeading = null;
   let cumulativeDistance = 0;
-  const saveCallback = typeof onSaveTrail === "function" ? onSaveTrail : null;
   let saveInProgress = false;
 
-  if (
-    recordTrail &&
-    initialAnchor &&
-    Number.isFinite(Number(initialAnchor.lat)) &&
-    Number.isFinite(Number(initialAnchor.lng))
-  ) {
-    const lat = Number(initialAnchor.lat);
-    const lng = Number(initialAnchor.lng);
-    const ts = Number(initialAnchor.timestamp) || Date.now();
-    const acc = Number(initialAnchor.accuracy);
-    const normalizedAccuracy = Number.isFinite(acc) ? acc : null;
-    anchorPoint = { lat, lng, accuracy: normalizedAccuracy, timestamp: ts };
-    const anchorRecord = {
-      lat,
-      lng,
-      accuracy: normalizedAccuracy,
-      timestamp: ts,
-    };
-    track.push(anchorRecord);
-    cumulativeDistance = 0;
-    trackStartTime = ts;
-    lastFixTimestamp = ts;
-    me = { lat, lng, accuracy: normalizedAccuracy, timestamp: ts };
-  }
+  // ---------- Wiring
 
-  const formatDistance = (meters) => {
-    if (!Number.isFinite(meters) || meters <= 0) return "0 m";
-    if (meters < 1000) return `${meters < 100 ? meters.toFixed(1) : meters.toFixed(0)} m`;
-    return `${(meters / 1000).toFixed(2)} km`;
-  };
+  btnClose.addEventListener("click", cleanup);
+  overlay.addEventListener("click", (evt) => { if (evt.target === overlay) cleanup(); });
 
-  const formatDuration = (ms) => {
-    if (!Number.isFinite(ms) || ms <= 0) return "0s";
-    const totalSeconds = Math.floor(ms / 1000);
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    if (hours > 0) return `${hours}h ${minutes}m`;
-    if (minutes > 0) return `${minutes}m ${seconds}s`;
-    return `${seconds}s`;
-  };
+  btnFollow.addEventListener("click", () => {
+    followMe = !followMe;
+    updateFollowButton();
+    if (followMe) draw(true);
+  });
 
-  const updateStats = () => {
-    if (!recordTrail || !distanceEl || !speedEl || !headingEl) return;
-    distanceEl.textContent = formatDistance(cumulativeDistance);
-    const elapsedMs = trackStartTime && lastFixTimestamp ? Math.max(0, lastFixTimestamp - trackStartTime) : 0;
-    const avgSpeed = elapsedMs > 0 ? (cumulativeDistance / (elapsedMs / 1000)) * 3.6 : 0;
-    speedEl.textContent = `${avgSpeed.toFixed(avgSpeed >= 10 ? 1 : 2)} km/h`;
-    if (lastHeading && Number.isFinite(lastHeading.bearingDegrees)) {
-      headingEl.textContent = `${lastHeading.bearingDegrees.toFixed(0)}\u00B0 (${lastHeading.compass})`;
-    } else {
-      headingEl.textContent = "N/A";
-    }
-  };
+  btnStartPause.addEventListener("click", () => {
+    if (trackingActive) stopTracking();
+    else startTracking();
+  });
 
+  btnSave.addEventListener("click", doSave);
+
+  // Resize handling
   const resizeObserver = window.ResizeObserver
-    ? new ResizeObserver(() => {
-        resizeCanvas();
-        draw(true);
-      })
+    ? new ResizeObserver(() => { resizeCanvas(); draw(true); })
     : null;
-  const onWindowResize = () => {
-    resizeCanvas();
-    draw(true);
+  const onWindowResize = () => { resizeCanvas(); draw(true); };
+
+  if (resizeObserver) { resizeObserver.observe(canvas); }
+  else { window.addEventListener("resize", onWindowResize); }
+
+  // ---------- Controller (public surface)
+
+  const controller = {
+    setData({ points = [], target = null, anchor = null } = {}) {
+      // sanitize points
+      const pts = (Array.isArray(points) ? points : [])
+        .filter(p => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))
+        .map(p => ({
+          lat: Number(p.lat),
+          lng: Number(p.lng),
+          note: typeof p.note === "string" ? p.note : "",
+          timestamp: Number.isFinite(p.timestamp) ? p.timestamp : Date.now()
+        }));
+
+      // validate target/anchor
+      const tgt = target && Number.isFinite(target.lat) && Number.isFinite(target.lng)
+        ? { lat: Number(target.lat), lng: Number(target.lng), note: target.note ? String(target.note) : "Target" }
+        : null;
+
+      const anc = anchor && Number.isFinite(anchor.lat) && Number.isFinite(anchor.lng)
+        ? { lat: Number(anchor.lat), lng: Number(anchor.lng) }
+        : null;
+
+      // compute anchor distances if anchor exists
+      if (anc) {
+        pts.forEach(p => {
+          p.anchorDistanceMeters = haversineMeters(
+            { lat: p.lat, lng: p.lng },
+            { lat: anc.lat, lng: anc.lng }
+          );
+        });
+      }
+
+      scene.points = pts;
+      scene.target = tgt;
+      scene.anchor = anc;
+
+      // Redraw using only scene (doesn't touch tracking)
+      draw(true);
+      updateReadout();
+      return pts; // useful if caller wants the annotated list
+    },
+
+    getState() {
+      return {
+        scene: JSON.parse(JSON.stringify(scene)),
+        trackingActive,
+        followMe,
+        me,
+        trackLength: track.length,
+        cumulativeDistance,
+      };
+    },
+
+    async save() { await doSave(); },
+
+    close: cleanup,
   };
-  if (resizeObserver) {
-    resizeObserver.observe(canvas);
-  } else {
-    window.addEventListener("resize", onWindowResize);
-  }
+
+  // Initialize scene from initial options (optional)
+  controller.setData({
+    points: options.points,
+    target: options.target,
+    anchor: options.anchor
+  });
+
+  // Initial render
+  resizeCanvas();
+  draw(true);
+  updateReadout();
+  updateStats();
+  updateToolbarState();
+
+  // Auto-start GPS if requested
+  if (liveTrack) startTracking({ silent: true });
+
+  return controller;
+
+  // ------------- Internals ------------------
 
   function resizeCanvas() {
     const rect = canvas.getBoundingClientRect();
     const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
     camera.dpr = dpr;
-    const width = Math.max(320, Math.round(rect.width * dpr));
-    const height = Math.max(200, Math.round(rect.height * dpr));
+    const width = Math.max(320, Math.round((rect.width || 640) * dpr));
+    const height = Math.max(200, Math.round((rect.height || 420) * dpr));
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
     }
   }
 
-  function getAllPoints() {
+  function getAllPointsForView() {
     const pts = [];
-    if (targetPoint) pts.push(targetPoint);
+    scene.points.forEach(p => pts.push(p));
     if (me) pts.push(me);
-    for (const p of track) pts.push(p);
+    if (scene.target) pts.push(scene.target);
+    if (track.length) pts.push(...track);
     return pts;
+  }
+
+  function computeOrigin(points) {
+    if (!points.length) return { lat: 0, lng: 0 };
+    let latSum = 0, lngSum = 0;
+    points.forEach(p => { latSum += p.lat; lngSum += p.lng; });
+    return { lat: latSum / points.length, lng: lngSum / points.length };
+  }
+
+  function projectPoint(point, reference) {
+    const R = 6371000;
+    const latRad = toRad(point.lat);
+    const refLatRad = toRad(reference.lat);
+    const dLat = toRad(point.lat - reference.lat);
+    const dLng = toRad(point.lng - reference.lng);
+    return {
+      x: R * dLng * Math.cos((latRad + refLatRad) / 2),
+      y: R * dLat,
+    };
+  }
+
+  function computeBounds(projected) {
+    if (!projected.length) return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    projected.forEach(pt => {
+      if (!Number.isFinite(pt.x) || !Number.isFinite(pt.y)) return;
+      if (pt.x < minX) minX = pt.x;
+      if (pt.x > maxX) maxX = pt.x;
+      if (pt.y < minY) minY = pt.y;
+      if (pt.y > maxY) maxY = pt.y;
+    });
+    if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
+    return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
   }
 
   function updateCamera(forceFit = false) {
     if (!forceFit && !followMe) return;
-    const pts = getAllPoints();
+    const pts = getAllPointsForView();
     if (!pts.length) return;
-    origin = computeOrigin(pts);
-    const projected = pts.map((p) => projectPoint(p, origin));
+    const origin = computeOrigin(pts);
+    const projected = pts.map(p => projectPoint(p, origin));
     const bounds = computeBounds(projected);
     if (!bounds) return;
 
@@ -262,10 +312,7 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTr
     const spanY = Math.max(bounds.height, 1);
     const scale = Math.max(
       0.0001,
-      Math.min(
-        (logicalWidth - padding * 2) / spanX,
-        (logicalHeight - padding * 2) / spanY
-      )
+      Math.min((logicalWidth - padding * 2) / spanX, (logicalHeight - padding * 2) / spanY)
     );
 
     camera.scale = scale;
@@ -273,36 +320,53 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTr
     camera.offsetY = padding + bounds.maxY * scale;
   }
 
-  function toCanvas(point) {
-    const projected = projectPoint(point, origin);
+  function toCanvasCoords(point, origin) {
+    const proj = projectPoint(point, origin);
     return {
-      x: projected.x * camera.scale + camera.offsetX,
-      y: -projected.y * camera.scale + camera.offsetY,
+      x: proj.x * camera.scale + camera.offsetX,
+      y: -proj.y * camera.scale + camera.offsetY,
     };
   }
 
   function draw(forceFit = false) {
-    resizeCanvas();
     updateCamera(forceFit);
-
     const theme = getTheme();
 
+    // clear
     ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.setTransform(1,0,0,1,0,0);
     ctx.fillStyle = theme.bg;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0,0,canvas.width, canvas.height);
     ctx.restore();
 
-    ctx.save();
-    ctx.setTransform(camera.dpr, 0, 0, camera.dpr, 0, 0);
+    const viewPts = getAllPointsForView();
+    const origin = computeOrigin(viewPts);
 
-    // Track path.
+    ctx.save();
+    ctx.setTransform(camera.dpr,0,0,camera.dpr,0,0);
+
+    // Draw polyline: (1) scene.points path (2) track path
+    if (scene.points.length >= 2) {
+      ctx.beginPath();
+      let first = toCanvasCoords(scene.points[0], origin);
+      ctx.moveTo(first.x, first.y);
+      for (let i=1;i<scene.points.length;i++){
+        const next = toCanvasCoords(scene.points[i], origin);
+        ctx.lineTo(next.x, next.y);
+      }
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = theme.accent;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.stroke();
+    }
+
     if (track.length >= 2) {
       ctx.beginPath();
-      const first = toCanvas(track[0]);
+      const first = toCanvasCoords(track[0], origin);
       ctx.moveTo(first.x, first.y);
-      for (let i = 1; i < track.length; i += 1) {
-        const next = toCanvas(track[i]);
+      for (let i=1;i<track.length;i++){
+        const next = toCanvasCoords(track[i], origin);
         ctx.lineTo(next.x, next.y);
       }
       ctx.lineWidth = 3;
@@ -312,9 +376,41 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTr
       ctx.stroke();
     }
 
-    // Target.
-    if (targetPoint) {
-      const pos = toCanvas(targetPoint);
+    // Points labels + optional anchor distances
+    const radius = 5;
+    scene.points.forEach((p, idx) => {
+      const pos = toCanvasCoords(p, origin);
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, radius, 0, Math.PI*2);
+      const isFirst = idx === 0;
+      const isLast = idx === scene.points.length - 1;
+      ctx.fillStyle = isFirst ? theme.start : isLast ? theme.end : theme.point;
+      ctx.fill();
+      // index label
+      ctx.fillStyle = theme.fg;
+      ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText(String(idx+1), pos.x, pos.y + radius + 3);
+
+      // info label
+      const lines = [];
+      const note = formatPointLabel(p);
+      if (note) lines.push(note);
+      if (Number.isFinite(p.anchorDistanceMeters)) {
+        lines.push(formatDistance(p.anchorDistanceMeters, "m"));
+      }
+      if (lines.length) {
+        ctx.fillStyle = theme.fgMuted;
+        ctx.font = "11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+        let y = pos.y + radius + 18;
+        lines.forEach(line => { ctx.fillText(line, pos.x, y); y += 14; });
+      }
+    });
+
+    // Target
+    if (scene.target) {
+      const pos = toCanvasCoords(scene.target, origin);
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, 8, 0, Math.PI * 2);
       ctx.fillStyle = theme.target;
@@ -324,9 +420,9 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTr
       ctx.stroke();
     }
 
-    // Me.
+    // Me
     if (me) {
-      const pos = toCanvas(me);
+      const pos = toCanvasCoords(me, origin);
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, 8, 0, Math.PI * 2);
       ctx.fillStyle = theme.me;
@@ -338,126 +434,161 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTr
 
     ctx.restore();
 
-    // Border.
+    // Border
     ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.setTransform(1,0,0,1,0,0);
     ctx.strokeStyle = theme.border;
     ctx.lineWidth = 1;
     ctx.strokeRect(0, 0, canvas.width, canvas.height);
     ctx.restore();
   }
 
-  function updateReadout() {
-    if (!readout) return;
-    if (recordTrail) {
-      if (recordTrail && !anchorPoint) {
-        const sampleCount = anchorSamples.length;
-        readout.textContent =
-          sampleCount > 1
-            ? `Locking GPS\u2026 ${sampleCount} samples`
-            : "Locking GPS\u2026";
-        return;
-      }
-      if (!me) {
-        readout.textContent = "Waiting for GPS fix...";
-        return;
-      }
-      const accuracyText = Number.isFinite(me.accuracy) ? `\u00B1${me.accuracy.toFixed(0)} m` : "accuracy n/a";
-      const elapsedMs = trackStartTime && lastFixTimestamp ? Math.max(0, lastFixTimestamp - trackStartTime) : 0;
-      const elapsedText = formatDuration(elapsedMs);
-      const pointsText = track.length || (me ? 1 : 0);
-      readout.textContent = `Accuracy ${accuracyText} \u2022 Elapsed ${elapsedText} \u2022 Points ${pointsText}`;
+  function startTracking({ silent = false } = {}) {
+    if (!navigator.geolocation) {
+      if (!silent) readout.textContent = "Geolocation is not available.";
       return;
     }
-    if (!me || !targetPoint) {
-      readout.textContent = "Waiting for GPS fix...";
+    if (trackingActive) return;
+
+    trackingActive = true;
+    anchorPoint = null;
+    anchorStartTime = null;
+    recentFixes.length = 0;
+    if (!track.length) cumulativeDistance = 0;
+
+    watchId = navigator.geolocation.watchPosition(
+      handleFix,
+      (err) => { readout.textContent = `GPS error: ${err.message || err}`; },
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
+    );
+
+    updateToolbarState();
+  }
+
+  function stopTracking() {
+    if (watchId != null) {
+      navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+    }
+    trackingActive = false;
+    updateToolbarState();
+  }
+
+  async function doSave() {
+    if (!recordTrail) { alert("Saving is only available in record mode."); return; }
+    if (saveInProgress) return;
+    if (track.length < 2) { alert("Record a longer track before saving."); return; }
+    if (typeof onSaveTrail !== "function") { alert("Saving tracks is not available on this map."); return; }
+
+    const defaultName = `Track ${new Date(trackStartTime || Date.now()).toLocaleString()}`;
+    const input = window.prompt("Name this track", defaultName);
+    if (input === null) return;
+    const name = input.trim() || defaultName;
+    const noteInput = window.prompt("Add a note for this track (optional)", "");
+    const note = typeof noteInput === "string" ? noteInput.trim() : "";
+
+    const createdAt = trackStartTime || Date.now();
+    const durationMs = Math.max(0, (lastFixTimestamp ?? createdAt) - (trackStartTime ?? createdAt));
+    const distanceMeters = cumulativeDistance;
+    const points = track.map(p => ({
+      lat: p.lat, lng: p.lng, timestamp: p.timestamp, accuracy: p.accuracy
+    }));
+
+    saveInProgress = true;
+    btnSave.textContent = "Saving...";
+    updateToolbarState();
+    try {
+      const res = await Promise.resolve(onSaveTrail({ name, note, createdAt, durationMs, distanceMeters, points }));
+      if (res === false) {
+        saveInProgress = false;
+        btnSave.textContent = "Save";
+        updateToolbarState();
+        return;
+      }
+    } catch (e) {
+      console.error("Track save failed:", e);
+      alert(`Unable to save track: ${e?.message || e}`);
+      saveInProgress = false;
+      btnSave.textContent = "Save";
+      updateToolbarState();
       return;
     }
-    const { meters, bearingDegrees, compass } = distanceAndDirection(me, targetPoint);
-    const distanceText = meters < 995 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(2)} km`;
-    readout.textContent = `You -> Target: ${distanceText}, bearing ${bearingDegrees.toFixed(0)}\u00B0 (${compass})`;
+    saveInProgress = false;
+    btnSave.textContent = "Save";
+    updateToolbarState();
+    cleanup();
   }
 
   function handleFix(position) {
     const timestamp = Number.isFinite(position.timestamp) ? position.timestamp : Date.now();
-  const next = {
-    lat: position.coords.latitude,
-    lng: position.coords.longitude,
-    accuracy: position.coords.accuracy,
-    timestamp,
-  };
-  const accuracyTooHigh = Number.isFinite(next.accuracy) && next.accuracy > MAX_TRACK_POINT_ACCURACY_METERS;
+    const next = {
+      lat: position.coords.latitude,
+      lng: position.coords.longitude,
+      accuracy: position.coords.accuracy,
+      timestamp,
+    };
+    const tooInaccurate = Number.isFinite(next.accuracy) && next.accuracy > MAX_TRACK_POINT_ACCURACY_METERS;
 
-  if (anchorPoint && accuracyTooHigh) {
-    me = next;
-    lastFixTimestamp = timestamp;
-    updateReadout();
-    return;
-  }
-
-    if (recordTrail && !anchorPoint) {
+    // Establish anchor from averaged initial fixes to smooth start
+    if (!anchorPoint) {
       if (!anchorStartTime) anchorStartTime = timestamp;
-      anchorSamples.push(next);
-      if (anchorSamples.length > REQUIRED_ANCHOR_SAMPLES * 3) anchorSamples.shift();
+      recentFixes.push(next);
+      if (recentFixes.length > REQUIRED_ANCHOR_SAMPLES * 3) recentFixes.shift();
 
-      const usableSamples = anchorSamples.filter(
-        (sample) => !Number.isFinite(sample.accuracy) || sample.accuracy <= ANCHOR_MAX_ACCURACY_METERS
-      );
-      const sampleSet = usableSamples.length ? usableSamples : anchorSamples.slice();
-      const avgLat = sampleSet.reduce((sum, sample) => sum + sample.lat, 0) / sampleSet.length;
-      const avgLng = sampleSet.reduce((sum, sample) => sum + sample.lng, 0) / sampleSet.length;
-      const accValues = sampleSet.map((sample) => sample.accuracy).filter((value) => Number.isFinite(value));
-      const avgAcc = accValues.length ? accValues.reduce((sum, value) => sum + value, 0) / accValues.length : next.accuracy;
+      const usable = recentFixes.filter(s => !Number.isFinite(s.accuracy) || s.accuracy <= ANCHOR_MAX_ACCURACY_METERS);
+      const sampleSet = usable.length ? usable : recentFixes.slice();
+      const avgLat = sampleSet.reduce((s, f) => s + f.lat, 0) / sampleSet.length;
+      const avgLng = sampleSet.reduce((s, f) => s + f.lng, 0) / sampleSet.length;
+      const accValues = sampleSet.map(s => s.accuracy).filter(Number.isFinite);
+      const avgAcc = accValues.length ? accValues.reduce((s,v)=>s+v,0)/accValues.length : next.accuracy;
 
       me = { lat: avgLat, lng: avgLng, accuracy: avgAcc, timestamp };
       lastFixTimestamp = timestamp;
 
       const sampleCount = sampleSet.length;
       const elapsed = anchorStartTime ? timestamp - anchorStartTime : 0;
-      const meetsSampleCount = sampleCount >= REQUIRED_ANCHOR_SAMPLES;
-      const meetsAccuracy = Number.isFinite(avgAcc) && avgAcc <= 20;
+      const meetsCount = sampleCount >= REQUIRED_ANCHOR_SAMPLES;
+      const meetsAcc = Number.isFinite(avgAcc) && avgAcc <= 20;
       const timedOut = elapsed >= ANCHOR_TIMEOUT_MS;
-      const msgAcc = Number.isFinite(avgAcc) ? ` (~\u00B1${avgAcc.toFixed(0)} m)` : "";
-      readout.textContent = `Locking GPS\u2026 ${sampleCount} fix${sampleCount === 1 ? "" : "es"}${msgAcc}`;
 
-      if (meetsAccuracy || meetsSampleCount || timedOut) {
+      readout.textContent = `Locking GPS… ${sampleCount} fix${sampleCount === 1 ? "" : "es"}${Number.isFinite(avgAcc) ? ` (~±${avgAcc.toFixed(0)} m)` : ""}`;
+
+      if (meetsAcc || meetsCount || timedOut) {
         anchorPoint = { lat: avgLat, lng: avgLng, accuracy: avgAcc, timestamp };
-        const anchorRecord = {
-          lat: anchorPoint.lat,
-          lng: anchorPoint.lng,
-          accuracy: anchorPoint.accuracy ?? null,
-          timestamp,
-        };
-        anchorSamples.length = 0;
         track.length = 0;
-        track.push(anchorRecord);
+        track.push({ ...anchorPoint });
         cumulativeDistance = 0;
         trackStartTime = timestamp;
         lastFixTimestamp = timestamp;
-        anchorStartTime = null;
         draw(true);
         updateReadout();
         updateStats();
+        updateToolbarState();
       }
       return;
     }
 
-    const previousRecorded = track.length ? track[track.length - 1] : null;
-    const displacement = previousRecorded ? haversineMeters(previousRecorded, next) : Infinity;
+    // After anchor established
+    if (tooInaccurate) {
+      me = next;
+      lastFixTimestamp = timestamp;
+      updateReadout();
+      return;
+    }
 
-    if (displacement >= MIN_TRACK_DELTA_METERS) {
-      track.push({ lat: next.lat, lng: next.lng, accuracy: next.accuracy, timestamp: next.timestamp });
-      if (track.length > MAX_TRACK_POINTS) {
-        track.splice(0, track.length - MAX_TRACK_POINTS);
+    const prev = track.length ? track[track.length - 1] : null;
+    const displacement = prev ? haversineMeters(prev, next) : Infinity;
+    const significantMove = displacement >= MIN_TRACK_DELTA_METERS;
+
+    if (significantMove) {
+      track.push({ ...next });
+      if (track.length > MAX_TRACK_POINTS) track.splice(0, track.length - MAX_TRACK_POINTS);
+      if (prev) {
+        const seg = haversineMeters(prev, next);
+        if (Number.isFinite(seg)) cumulativeDistance += seg;
+        lastHeading = distanceAndDirection(prev, next);
       }
-      if (recordTrail && previousRecorded) {
-      const segment = haversineMeters(previousRecorded, next);
-      if (Number.isFinite(segment)) cumulativeDistance += segment;
-      lastHeading = distanceAndDirection(previousRecorded, next);
-      }
-      if (recordTrail && !trackStartTime) {
-        trackStartTime = next.timestamp;
-      }
+      if (!trackStartTime) trackStartTime = next.timestamp;
     }
 
     me = next;
@@ -465,322 +596,89 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTr
     draw(followMe);
     updateReadout();
     updateStats();
-  }
-
-  function handleFixError(err) {
-    readout.textContent = `GPS error: ${err.message || err}`;
+    updateToolbarState();
   }
 
   function cleanup() {
-    if (watchId !== null) {
-      navigator.geolocation.clearWatch(watchId);
-      watchId = null;
-    }
+    stopTracking();
     if (resizeObserver) resizeObserver.disconnect();
     else window.removeEventListener("resize", onWindowResize);
     overlay.remove();
   }
 
-  // Event wiring.
-  btnClose.addEventListener("click", cleanup);
-  overlay.addEventListener("click", (event) => {
-    if (event.target === overlay) cleanup();
-  });
-  btnFit.addEventListener("click", () => draw(true));
-  btnFollow.addEventListener("click", () => {
-    followMe = !followMe;
-    btnFollow.textContent = followMe ? "Unpin me" : "Follow me";
-    if (followMe) {
-      draw(true);
-    }
-  });
-  btnSave?.addEventListener("click", async () => {
-    if (saveInProgress) return;
-    if (!track.length) {
-      alert("No GPS points recorded yet. Keep recording a bit longer before saving.");
-      return;
-    }
-    const defaultName = `Track ${new Date(trackStartTime || Date.now()).toLocaleString()}`;
-    const input = window.prompt("Name this track", defaultName);
-    if (input === null) return;
-    const name = input.trim() || defaultName;
-    const noteInput = window.prompt("Add a note for this track (optional)", "");
-    const note = typeof noteInput === "string" ? noteInput.trim() : "";
-    const createdAt = trackStartTime || Date.now();
-    const durationMs = Math.max(0, (lastFixTimestamp ?? createdAt) - (trackStartTime ?? createdAt));
-    const distanceMeters = cumulativeDistance;
-    const points = track.map((p) => ({
-      lat: p.lat,
-      lng: p.lng,
-      timestamp: p.timestamp,
-      accuracy: p.accuracy,
-    }));
+  // -------- UI helpers
 
-    saveInProgress = true;
-    btnSave.disabled = true;
-    btnSave.textContent = "Saving...";
-    try {
-      const result = saveCallback ? await Promise.resolve(saveCallback({ name, note, createdAt, durationMs, distanceMeters, points })) : true;
-      if (result === false) {
-        btnSave.disabled = false;
-        btnSave.textContent = "Save track";
-        saveInProgress = false;
+  function updateToolbarState() {
+    // Start/Pause text
+    btnStartPause.textContent = trackingActive ? "Pause Tracking" : "Start Tracking";
+    // Save availability
+    const canSave = !!(recordTrail && track.length >= 2 && !saveInProgress);
+    btnSave.disabled = !canSave;
+    btnSave.textContent = saveInProgress ? "Saving..." : "Save";
+    // Follow button text
+    updateFollowButton();
+  }
+
+  function updateFollowButton() {
+    btnFollow.textContent = followMe ? "Unpin me" : "Pin me";
+  }
+
+  function updateStats() {
+    if (!distanceEl || !speedEl || !headingEl) return;
+    distanceEl.textContent = formatDistance(cumulativeDistance);
+    const elapsedMs = trackStartTime && lastFixTimestamp ? Math.max(0, lastFixTimestamp - trackStartTime) : 0;
+    const avgSpeed = elapsedMs > 0 ? (cumulativeDistance / (elapsedMs / 1000)) * 3.6 : 0;
+    speedEl.textContent = `${avgSpeed.toFixed(avgSpeed >= 10 ? 1 : 2)} km/h`;
+    if (lastHeading && Number.isFinite(lastHeading.bearingDegrees)) {
+      headingEl.textContent = `${lastHeading.bearingDegrees.toFixed(0)}° (${lastHeading.compass})`;
+    } else {
+      headingEl.textContent = "N/A";
+    }
+  }
+
+  function updateReadout() {
+    if (!readout) return;
+    if (!trackingActive) {
+      // Show anchor distance summary if anchor + points exist
+      if (scene.anchor && scene.points.length) {
+        const withDists = scene.points.filter(p => Number.isFinite(p.anchorDistanceMeters));
+        if (withDists.length) {
+          const avg = withDists.reduce((s,p)=>s+p.anchorDistanceMeters,0)/withDists.length;
+          readout.textContent = `Anchor distances: ${withDists.length} pts • avg ${formatDistance(avg)}`;
+          return;
+        }
+      }
+      if (me && scene.target) {
+        const { meters, bearingDegrees, compass } = distanceAndDirection(me, scene.target);
+        const distanceText = meters < 995 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(2)} km`;
+        readout.textContent = `You → Target: ${distanceText}, bearing ${bearingDegrees.toFixed(0)}° (${compass})`;
         return;
       }
-      cleanup();
-    } catch (error) {
-      console.error("Track save failed:", error);
-      alert(`Unable to save track: ${error?.message || error}`);
-      btnSave.disabled = false;
-      btnSave.textContent = "Save track";
-      saveInProgress = false;
-    } finally {
-      saveInProgress = false;
+      readout.textContent = "Tracking paused";
+      return;
     }
-  });
 
-  // Initial render.
-  resizeCanvas();
-  draw(true);
-  updateReadout();
-  updateStats();
+    // Tracking active
+    if (!anchorPoint) {
+      const count = recentFixes.length;
+      readout.textContent = count > 1 ? `Locking GPS… ${count} samples` : "Locking GPS…";
+      return;
+    }
 
-  if (liveTrack && navigator.geolocation) {
-    watchId = navigator.geolocation.watchPosition(
-      handleFix,
-      handleFixError,
-      { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
-    );
-  } else if (liveTrack) {
-    readout.textContent = "Geolocation is not available.";
+    if (!me) {
+      readout.textContent = "Waiting for GPS fix...";
+      return;
+    }
+
+    const accuracyText = Number.isFinite(me.accuracy) ? `±${me.accuracy.toFixed(0)} m` : "accuracy n/a";
+    const elapsedMs = trackStartTime && lastFixTimestamp ? Math.max(0, lastFixTimestamp - trackStartTime) : 0;
+    const elapsedText = formatDuration(elapsedMs);
+    const pointsText = track.length || (me ? 1 : 0);
+    readout.textContent = `Accuracy ${accuracyText} • Elapsed ${elapsedText} • Points ${pointsText}`;
   }
-
-  return { close: cleanup };
 }
 
-// ---------- Plot Mode (Multiple points) --------------------------------------
-
-function openPlotOverlay(input = {}) {
-  const points = Array.isArray(input.points) ? input.points : [];
-  const labelDistance = input.labelDistance !== false;
-  const units = input.units === "km" ? "km" : "m";
-  const originIndex = Number.isInteger(input.originIndex) ? input.originIndex : 0;
-  const connections = Array.isArray(input.connections) ? input.connections : null;
-  const distanceMode = input.distanceMode === "origin" ? "origin" : "path";
-
-  const scene = buildPlotScene(points, { originIndex, connections });
-
-  const overlay = document.createElement("div");
-  overlay.className = "sketchmap-overlay";
-  overlay.innerHTML = `
-    <div class="sketchmap-panel" role="dialog" aria-modal="true" aria-label="Sketch map">
-      <header class="sketchmap-toolbar">
-        <div class="left">
-          <button class="btn btn-outline sm-fit" title="Fit">Fit</button>
-        </div>
-        <div class="right">
-          <button class="btn btn-outline sm-close" aria-label="Close">&times;</button>
-        </div>
-      </header>
-      <div class="sketchmap-body">
-        <canvas class="sketchmap-canvas" aria-label="Sketch map plot"></canvas>
-      </div>
-      <footer class="sketchmap-hint">Drag to pan | Wheel/pinch to zoom</footer>
-    </div>
-  `;
-
-  const style = document.createElement("style");
-  style.textContent = `
-    .sketchmap-overlay{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);backdrop-filter:saturate(110%) blur(2px);display:flex;align-items:center;justify-content:center;padding:1rem}
-    .sketchmap-panel{background:#fff;color:#0f172a;width:min(96vw,920px);height:min(90vh,680px);border-radius:16px;box-shadow:0 18px 50px rgba(0,0,0,.35);display:flex;flex-direction:column;border:1px solid rgba(0,0,0,.08)}
-    @media (prefers-color-scheme: dark){.sketchmap-panel{background:#0b1223;color:#e5e7eb;border-color:rgba(255,255,255,.12)}}
-    .sketchmap-toolbar{display:flex;align-items:center;justify-content:space-between;padding:.5rem .75rem;border-bottom:1px solid rgba(0,0,0,.08)}
-    @media (prefers-color-scheme: dark){.sketchmap-toolbar{border-color:rgba(255,255,255,.12)}}
-    .sketchmap-toolbar .btn{padding:.35rem .6rem;border-radius:10px;border:1px solid currentColor;font-weight:700}
-    .sketchmap-body{flex:1;display:flex}
-    .sketchmap-canvas{flex:1;display:block;width:100%;height:100%;background:#ffffff;border-radius:12px}
-    @media (prefers-color-scheme: dark){.sketchmap-canvas{background:#0b1220}}
-    .sketchmap-hint{opacity:.7;font-size:.85rem;padding:.4rem .75rem}
-  `;
-  overlay.appendChild(style);
-  document.body.appendChild(overlay);
-
-  const canvas = overlay.querySelector(".sketchmap-canvas");
-  const ctx = canvas.getContext("2d");
-  const btnClose = overlay.querySelector(".sm-close");
-  const btnFit = overlay.querySelector(".sm-fit");
-
-  const camera = { x: 0, y: 0, scale: 1, dpr: 1, padding: 20, _canvas: canvas };
-
-  const resizeObserver = window.ResizeObserver
-    ? new ResizeObserver(() => {
-        resizeCanvas();
-        fitAndDraw();
-      })
-    : null;
-  const onWindowResize = () => {
-    resizeCanvas();
-    fitAndDraw();
-  };
-  if (resizeObserver) {
-    resizeObserver.observe(canvas);
-  } else {
-    window.addEventListener("resize", onWindowResize);
-  }
-
-  function resizeCanvas() {
-    const rect = canvas.getBoundingClientRect();
-    const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
-    camera.dpr = dpr;
-    const width = Math.max(320, Math.round((rect.width || 640) * dpr));
-    const height = Math.max(200, Math.round((rect.height || 400) * dpr));
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width;
-      canvas.height = height;
-    }
-  }
-
-  function fitAndDraw() {
-    fitPlot(camera, scene);
-    drawPlot(canvas, ctx, camera, scene, { labelDistance, units, distanceMode });
-  }
-
-  // Mouse pan/zoom ------------------------------------------------------------
-  let dragging = false;
-  let last = { x: 0, y: 0 };
-
-  function toLocal(evt) {
-    const rect = canvas.getBoundingClientRect();
-    return { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
-  }
-
-  function onPointerDown(evt) {
-    dragging = true;
-    last = toLocal(evt);
-    evt.preventDefault();
-  }
-
-  function onPointerMove(evt) {
-    if (!dragging) return;
-    const pt = toLocal(evt);
-    camera.x += pt.x - last.x;
-    camera.y += pt.y - last.y;
-    last = pt;
-    drawPlot(canvas, ctx, camera, scene, { labelDistance, units, distanceMode });
-  }
-
-  function onPointerUp() {
-    dragging = false;
-  }
-
-  function onWheel(evt) {
-    evt.preventDefault();
-    const rect = canvas.getBoundingClientRect();
-    const mx = evt.clientX - rect.left;
-    const my = evt.clientY - rect.top;
-    const delta = Math.sign(evt.deltaY) * 0.1;
-    const factor = Math.exp(-delta);
-    const prevScale = camera.scale;
-    const nextScale = clamp(prevScale * factor, 0.1, 50);
-    camera.x = mx - (mx - camera.x) * (nextScale / prevScale);
-    camera.y = my - (my - camera.y) * (nextScale / prevScale);
-    camera.scale = nextScale;
-    drawPlot(canvas, ctx, camera, scene, { labelDistance, units, distanceMode });
-  }
-
-  // Touch gestures ------------------------------------------------------------
-  let pinch = null;
-
-  function getTouchPoint(touch) {
-    return { x: touch.clientX, y: touch.clientY };
-  }
-
-  function distanceBetween(a, b) {
-    return Math.hypot(a.x - b.x, a.y - b.y);
-  }
-
-  function onTouchStart(evt) {
-    if (evt.touches.length === 1) {
-      dragging = true;
-      last = getTouchPoint(evt.touches[0]);
-    } else if (evt.touches.length === 2) {
-      dragging = false;
-      const a = getTouchPoint(evt.touches[0]);
-      const b = getTouchPoint(evt.touches[1]);
-      pinch = {
-        startDist: distanceBetween(a, b),
-        startScale: camera.scale,
-        startX: camera.x,
-        startY: camera.y,
-        center: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
-      };
-    }
-  }
-
-  function onTouchMove(evt) {
-    if (pinch && evt.touches.length === 2) {
-      const a = getTouchPoint(evt.touches[0]);
-      const b = getTouchPoint(evt.touches[1]);
-      const scaleFactor = clamp(distanceBetween(a, b) / pinch.startDist, 0.2, 5);
-      const nextScale = clamp(pinch.startScale * scaleFactor, 0.1, 50);
-      camera.x = pinch.center.x - (pinch.center.x - pinch.startX) * (nextScale / pinch.startScale);
-      camera.y = pinch.center.y - (pinch.center.y - pinch.startY) * (nextScale / pinch.startScale);
-      camera.scale = nextScale;
-      drawPlot(canvas, ctx, camera, scene, { labelDistance, units, distanceMode });
-    } else if (dragging && evt.touches.length === 1) {
-      const touch = getTouchPoint(evt.touches[0]);
-      camera.x += touch.x - last.x;
-      camera.y += touch.y - last.y;
-      last = touch;
-      drawPlot(canvas, ctx, camera, scene, { labelDistance, units, distanceMode });
-    }
-  }
-
-  function onTouchEnd() {
-    dragging = false;
-    pinch = null;
-  }
-
-  // Close helpers -------------------------------------------------------------
-  function close() {
-    if (resizeObserver) resizeObserver.disconnect();
-    else window.removeEventListener("resize", onWindowResize);
-    canvas.removeEventListener("mousedown", onPointerDown);
-    window.removeEventListener("mousemove", onPointerMove);
-    window.removeEventListener("mouseup", onPointerUp);
-    canvas.removeEventListener("wheel", onWheel);
-    canvas.removeEventListener("touchstart", onTouchStart);
-    canvas.removeEventListener("touchmove", onTouchMove);
-    canvas.removeEventListener("touchend", onTouchEnd);
-    canvas.removeEventListener("touchcancel", onTouchEnd);
-    overlay.remove();
-  }
-
-  // Wiring.
-  btnClose.addEventListener("click", close);
-  overlay.addEventListener("click", (event) => {
-    if (event.target === overlay) close();
-  });
-  btnFit.addEventListener("click", fitAndDraw);
-
-  canvas.addEventListener("mousedown", onPointerDown);
-  window.addEventListener("mousemove", onPointerMove);
-  window.addEventListener("mouseup", onPointerUp);
-  canvas.addEventListener("wheel", onWheel, { passive: false });
-
-  canvas.addEventListener("touchstart", onTouchStart, { passive: true });
-  canvas.addEventListener("touchmove", onTouchMove, { passive: true });
-  canvas.addEventListener("touchend", onTouchEnd, { passive: true });
-  canvas.addEventListener("touchcancel", onTouchEnd, { passive: true });
-
-  // Initial draw.
-  resizeCanvas();
-  fitAndDraw();
-
-  return { close, fit: fitAndDraw };
-}
-
-// ---------- Shared helpers ---------------------------------------------------
+// ------------- Shared helpers -------------
 
 function normalizeInput(input) {
   if (Array.isArray(input)) return { points: input };
@@ -788,315 +686,7 @@ function normalizeInput(input) {
   return {};
 }
 
-function hasTarget(opts = {}) {
-  return !!(opts.target && Number.isFinite(opts.target.lat) && Number.isFinite(opts.target.lng));
-}
-
-function computeOrigin(points) {
-  if (!points.length) return { lat: 0, lng: 0 };
-  let latSum = 0;
-  let lngSum = 0;
-  for (const pt of points) {
-    latSum += pt.lat;
-    lngSum += pt.lng;
-  }
-  return { lat: latSum / points.length, lng: lngSum / points.length };
-}
-
-function projectPoint(point, reference) {
-  const earthRadius = 6371000; // meters
-  const latRad = toRad(point.lat);
-  const refLatRad = toRad(reference.lat);
-  const dLat = toRad(point.lat - reference.lat);
-  const dLng = toRad(point.lng - reference.lng);
-  return {
-    x: earthRadius * dLng * Math.cos((latRad + refLatRad) / 2),
-    y: earthRadius * dLat,
-  };
-}
-
-function computeBounds(points) {
-  if (!points.length) return null;
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const pt of points) {
-    if (!Number.isFinite(pt.x) || !Number.isFinite(pt.y)) continue;
-    if (pt.x < minX) minX = pt.x;
-    if (pt.x > maxX) maxX = pt.x;
-    if (pt.y < minY) minY = pt.y;
-    if (pt.y > maxY) maxY = pt.y;
-  }
-  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
-  return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
-}
-
-function buildPlotScene(points, { originIndex = 0, connections = null } = {}) {
-  const pts = (Array.isArray(points) ? points : [])
-    .filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))
-    .map((p) => ({
-      lat: Number(p.lat),
-      lng: Number(p.lng),
-      note: typeof p.note === "string" ? p.note : "",
-      timestamp: Number.isFinite(p.timestamp) ? p.timestamp : Date.now(),
-    }));
-
-  const scene = {
-    points: pts,
-    center: { lat: 0, lng: 0 },
-    metersPerDegX: 0,
-    metersPerDegY: 110540,
-    bounds: null,
-    connections: [],
-    edges: [],
-    drawMode: "path",
-    originIndex: 0,
-  };
-
-  if (!pts.length) return scene;
-
-  scene.originIndex = Math.min(Math.max(0, Number.isInteger(originIndex) ? originIndex : 0), pts.length - 1);
-
-  let latSum = 0;
-  let lngSum = 0;
-  for (const p of pts) {
-    latSum += p.lat;
-    lngSum += p.lng;
-  }
-  scene.center.lat = latSum / pts.length;
-  scene.center.lng = lngSum / pts.length;
-  scene.metersPerDegX = 111320 * Math.cos(toRad(scene.center.lat));
-
-  for (const p of pts) {
-    p._x = (p.lng - scene.center.lng) * scene.metersPerDegX;
-    p._y = -(p.lat - scene.center.lat) * scene.metersPerDegY;
-  }
-
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const p of pts) {
-    if (p._x < minX) minX = p._x;
-    if (p._x > maxX) maxX = p._x;
-    if (p._y < minY) minY = p._y;
-    if (p._y > maxY) maxY = p._y;
-  }
-  scene.bounds = {
-    minX,
-    minY,
-    maxX,
-    maxY,
-    width: Math.max(1, maxX - minX),
-    height: Math.max(1, maxY - minY),
-  };
-
-  const defaultConnections = () => {
-    const edges = [];
-    for (let i = 1; i < pts.length; i += 1) edges.push({ from: i - 1, to: i });
-    return edges;
-  };
-
-  const normalizedConnections = Array.isArray(connections)
-    ? connections
-        .map((conn) => {
-          if (conn == null) return null;
-          if (typeof conn === "object") {
-            const from = Number.isInteger(conn.from) ? conn.from : Number.isInteger(conn[0]) ? conn[0] : null;
-            const to = Number.isInteger(conn.to) ? conn.to : Number.isInteger(conn[1]) ? conn[1] : null;
-            if (Number.isInteger(from) && Number.isInteger(to)) return { from, to };
-            return null;
-          }
-          if (Array.isArray(conn) && conn.length >= 2) {
-            const from = Number.isInteger(conn[0]) ? conn[0] : null;
-            const to = Number.isInteger(conn[1]) ? conn[1] : null;
-            if (Number.isInteger(from) && Number.isInteger(to)) return { from, to };
-            return null;
-          }
-          return null;
-        })
-        .filter(Boolean)
-    : null;
-
-  const seenEdges = new Set();
-  const validConnections = [];
-  if (normalizedConnections?.length) {
-    normalizedConnections.forEach(({ from, to }) => {
-      if (from === to) return;
-      if (from < 0 || from >= pts.length) return;
-      if (to < 0 || to >= pts.length) return;
-      const key = `${from}->${to}`;
-      if (seenEdges.has(key)) return;
-      seenEdges.add(key);
-      validConnections.push({ from, to });
-    });
-  }
-
-  scene.connections = validConnections.length ? validConnections : defaultConnections();
-  const isSequentialPath =
-    scene.connections.length === pts.length - 1 &&
-    scene.connections.every((edge, idx) => edge.from === idx && edge.to === idx + 1);
-  scene.drawMode = isSequentialPath ? "path" : "graph";
-
-  scene.edges = scene.connections.map(({ from, to }) => {
-    const a = pts[from];
-    const b = pts[to];
-    const dx = b._x - a._x;
-    const dy = b._y - a._y;
-    return { from, to, meters: Math.hypot(dx, dy) };
-  });
-
-  return scene;
-}
-
-function fitPlot(cam, scene) {
-  if (!scene.bounds) return;
-  const pad = cam.padding || 20;
-  const logicalWidth = (cam._canvas?.width || cam.width || 800) / (cam.dpr || 1);
-  const logicalHeight = (cam._canvas?.height || cam.height || 520) / (cam.dpr || 1);
-  const spanX = Math.max(scene.bounds.width, 1);
-  const spanY = Math.max(scene.bounds.height, 1);
-  cam.scale = Math.max(0.0001, Math.min((logicalWidth - pad * 2) / spanX, (logicalHeight - pad * 2) / spanY));
-  cam.x = pad - scene.bounds.minX * cam.scale;
-  cam.y = pad + scene.bounds.maxY * cam.scale;
-}
-
-function drawPlot(canvas, ctx, cam, scene, { labelDistance = true, units = "m", distanceMode = "path" } = {}) {
-  const theme = getTheme();
-
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = theme.bg;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.restore();
-
-  ctx.save();
-  ctx.setTransform(cam.dpr, 0, 0, cam.dpr, 0, 0);
-
-  if (!scene.points.length) {
-    ctx.fillStyle = theme.fgMuted;
-    ctx.font = "14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("No points selected", canvas.width / (2 * cam.dpr), canvas.height / (2 * cam.dpr));
-    ctx.restore();
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.strokeStyle = theme.border;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(0, 0, canvas.width, canvas.height);
-    ctx.restore();
-    return;
-  }
-
-  const drawLine = (a, b) => {
-    const ax = a._x * cam.scale + cam.x;
-    const ay = a._y * cam.scale + cam.y;
-    const bx = b._x * cam.scale + cam.x;
-    const by = b._y * cam.scale + cam.y;
-    ctx.beginPath();
-    ctx.moveTo(ax, ay);
-    ctx.lineTo(bx, by);
-    ctx.stroke();
-  };
-
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = theme.accent;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-
-  if (scene.drawMode === "path") {
-    ctx.beginPath();
-    scene.points.forEach((p, i) => {
-      const x = p._x * cam.scale + cam.x;
-      const y = p._y * cam.scale + cam.y;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-  } else {
-    scene.connections.forEach(({ from, to }) => {
-      const a = scene.points[from];
-      const b = scene.points[to];
-      drawLine(a, b);
-    });
-  }
-
-  // Points.
-  const radius = 5;
-  scene.points.forEach((p, i) => {
-    const x = p._x * cam.scale + cam.x;
-    const y = p._y * cam.scale + cam.y;
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    if (i === 0) ctx.fillStyle = theme.start;
-    else if (i === scene.points.length - 1) ctx.fillStyle = theme.end;
-    else ctx.fillStyle = theme.point;
-    ctx.fill();
-    ctx.fillStyle = theme.fg;
-    ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    ctx.fillText(String(i + 1), x, y + radius + 3);
-
-    const label = formatPointLabel(p);
-    if (label) {
-      ctx.fillStyle = theme.fgMuted;
-      ctx.font = "11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-      ctx.fillText(label, x, y + radius + 18);
-    }
-  });
-
-  if (labelDistance && scene.edges.length) {
-    ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "bottom";
-    const edgesToLabel =
-      distanceMode === "origin"
-        ? scene.edges.filter((edge) => edge.from === scene.originIndex || edge.to === scene.originIndex)
-        : scene.edges;
-    const labeled = new Set();
-    edgesToLabel.forEach((edge) => {
-      const keyA = `${edge.from}->${edge.to}`;
-      if (labeled.has(keyA)) return;
-      labeled.add(keyA);
-      const a = scene.points[edge.from];
-      const b = scene.points[edge.to];
-      const ax = a._x * cam.scale + cam.x;
-      const ay = a._y * cam.scale + cam.y;
-      const bx = b._x * cam.scale + cam.x;
-      const by = b._y * cam.scale + cam.y;
-      const mx = (ax + bx) / 2;
-      const my = (ay + by) / 2;
-      const label = formatDistance(edge.meters, units);
-      ctx.save();
-      ctx.strokeStyle = theme.bg;
-      ctx.lineWidth = 3;
-      ctx.strokeText(label, mx, my - 6);
-      ctx.fillStyle = theme.fgMuted;
-      ctx.fillText(label, mx, my - 6);
-      ctx.restore();
-    });
-  }
-
-  ctx.restore();
-
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.strokeStyle = theme.border;
-  ctx.lineWidth = 1;
-  ctx.strokeRect(0, 0, canvas.width, canvas.height);
-  ctx.restore();
-}
-
-function toRad(value) {
-  return (value * Math.PI) / 180;
-}
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
+function toRad(v){ return (v * Math.PI) / 180; }
 
 function formatDistance(meters, unitsPref) {
   if (unitsPref === "km" || (unitsPref === "m" && meters >= 1000)) {
@@ -1104,6 +694,17 @@ function formatDistance(meters, unitsPref) {
     return `${value.toFixed(value >= 10 ? 0 : 1)} km`;
   }
   return `${Math.round(meters)} m`;
+}
+
+function formatDuration(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return "0s";
+  const s = Math.floor(ms/1000);
+  const h = Math.floor(s/3600);
+  const m = Math.floor((s%3600)/60);
+  const sec = s%60;
+  if (h>0) return `${h}h ${m}m`;
+  if (m>0) return `${m}m ${sec}s`;
+  return `${sec}s`;
 }
 
 function formatPointLabel(point, maxLength = 26) {
@@ -1147,8 +748,3 @@ function getTheme() {
     stroke: "rgba(15,23,42,0.35)",
   };
 }
-
-
-
-
-
