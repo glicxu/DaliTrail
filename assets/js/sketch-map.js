@@ -25,9 +25,9 @@ export function openSketchMapOverlay(input) {
 
 const MAX_TRACK_POINTS = 1500;
 const MIN_TRACK_DELTA_METERS = 6;
-const REQUIRED_ANCHOR_SAMPLES = 4;
-const ANCHOR_MAX_ACCURACY_METERS = 25;
-const ANCHOR_TIMEOUT_MS = 4000;
+const REQUIRED_ANCHOR_SAMPLES = 3;
+const ANCHOR_MAX_ACCURACY_METERS = 45;
+const ANCHOR_TIMEOUT_MS = 3000;
 
 function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTrail = false, onSaveTrail = null }) {
   const hasTargetPoint = hasTarget({ target });
@@ -366,12 +366,12 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTr
     if (recordTrail && !anchorPoint) {
       if (!anchorStartTime) anchorStartTime = timestamp;
       anchorSamples.push(next);
-      if (anchorSamples.length > REQUIRED_ANCHOR_SAMPLES * 2) anchorSamples.shift();
+      if (anchorSamples.length > REQUIRED_ANCHOR_SAMPLES * 3) anchorSamples.shift();
 
-      const accurateSamples = anchorSamples.filter(
-        (sample) => Number.isFinite(sample.accuracy) && sample.accuracy <= ANCHOR_MAX_ACCURACY_METERS
+      const usableSamples = anchorSamples.filter(
+        (sample) => !Number.isFinite(sample.accuracy) || sample.accuracy <= ANCHOR_MAX_ACCURACY_METERS
       );
-      const sampleSet = accurateSamples.length >= REQUIRED_ANCHOR_SAMPLES ? accurateSamples : anchorSamples.slice();
+      const sampleSet = usableSamples.length ? usableSamples : anchorSamples.slice();
       const avgLat = sampleSet.reduce((sum, sample) => sum + sample.lat, 0) / sampleSet.length;
       const avgLng = sampleSet.reduce((sum, sample) => sum + sample.lng, 0) / sampleSet.length;
       const accValues = sampleSet.map((sample) => sample.accuracy).filter((value) => Number.isFinite(value));
@@ -379,11 +379,16 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTr
 
       me = { lat: avgLat, lng: avgLng, accuracy: avgAcc, timestamp };
       lastFixTimestamp = timestamp;
-      updateReadout();
 
-      const enoughSamples = sampleSet.length >= REQUIRED_ANCHOR_SAMPLES;
-      const timedOut = timestamp - anchorStartTime >= ANCHOR_TIMEOUT_MS;
-      if (enoughSamples || timedOut) {
+      const sampleCount = sampleSet.length;
+      const elapsed = anchorStartTime ? timestamp - anchorStartTime : 0;
+      const meetsSampleCount = sampleCount >= REQUIRED_ANCHOR_SAMPLES;
+      const meetsAccuracy = Number.isFinite(avgAcc) && avgAcc <= 20;
+      const timedOut = elapsed >= ANCHOR_TIMEOUT_MS;
+      const msgAcc = Number.isFinite(avgAcc) ? ` (~\u00B1${avgAcc.toFixed(0)} m)` : "";
+      readout.textContent = `Locking GPS\u2026 ${sampleCount} fix${sampleCount === 1 ? "" : "es"}${msgAcc}`;
+
+      if (meetsAccuracy || meetsSampleCount || timedOut) {
         anchorPoint = { lat: avgLat, lng: avgLng, accuracy: avgAcc, timestamp };
         const anchorRecord = {
           lat: anchorPoint.lat,
@@ -397,6 +402,7 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTr
         cumulativeDistance = 0;
         trackStartTime = timestamp;
         lastFixTimestamp = timestamp;
+        anchorStartTime = null;
         draw(true);
         updateReadout();
         updateStats();
