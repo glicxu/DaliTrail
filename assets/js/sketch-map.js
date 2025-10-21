@@ -25,6 +25,10 @@ const REQUIRED_ANCHOR_SAMPLES = 3;
 const ANCHOR_MAX_ACCURACY_METERS = 45;
 const ANCHOR_TIMEOUT_MS = 3000;
 
+// Elevation accumulation tuning
+const MIN_ELEV_DELTA_METERS = 1.5;          // ignore tiny vertical wiggles
+const MAX_ALTITUDE_ACCURACY_METERS = 25;    // skip very noisy altitude fixes when provided
+
 // -------------- Overlay ---------------------
 
 function createUnifiedOverlay(options) {
@@ -61,6 +65,7 @@ function createUnifiedOverlay(options) {
           <div><span class="label">Distance</span> <span id="sketch-distance">0 m</span></div>
           <div><span class="label">Avg speed</span> <span id="sketch-speed">0 km/h</span></div>
           <div><span class="label">Direction</span> <span id="sketch-heading">N/A</span></div>
+          <div><span class="label">Elevation</span> <span id="sketch-elev">+0 m / -0 m</span></div>
         </div>
         <div class="sketch-readout" id="sketch-readout">Waiting for GPS fix...</div>
       </div>
@@ -109,6 +114,7 @@ function createUnifiedOverlay(options) {
   const distanceEl = overlay.querySelector("#sketch-distance");
   const speedEl = overlay.querySelector("#sketch-speed");
   const headingEl = overlay.querySelector("#sketch-heading");
+  const elevEl = overlay.querySelector("#sketch-elev");
 
   // State
   const camera = { scale: 1, offsetX: 0, offsetY: 0, dpr: 1 };
@@ -133,6 +139,8 @@ function createUnifiedOverlay(options) {
   let lastFixTimestamp = null;
   let lastHeading = null;
   let cumulativeDistance = 0;
+  let cumulativeGain = 0;
+  let cumulativeLoss = 0;
   let saveInProgress = false;
 
   // ---------- Wiring
@@ -213,6 +221,8 @@ function createUnifiedOverlay(options) {
         me,
         trackLength: track.length,
         cumulativeDistance,
+        cumulativeGain,
+        cumulativeLoss,
       };
     },
 
@@ -454,8 +464,9 @@ function createUnifiedOverlay(options) {
     anchorPoint = null;
     anchorStartTime = null;
     recentFixes.length = 0;
-    if (!track.length) cumulativeDistance = 0;
 
+    // do not wipe existing drawn track unless you want a new session;
+    // distance/gain/loss will be reset when the anchor is established
     watchId = navigator.geolocation.watchPosition(
       handleFix,
       (err) => { readout.textContent = `GPS error: ${err.message || err}`; },
@@ -490,15 +501,30 @@ function createUnifiedOverlay(options) {
     const createdAt = trackStartTime || Date.now();
     const durationMs = Math.max(0, (lastFixTimestamp ?? createdAt) - (trackStartTime ?? createdAt));
     const distanceMeters = cumulativeDistance;
+
     const points = track.map(p => ({
-      lat: p.lat, lng: p.lng, timestamp: p.timestamp, accuracy: p.accuracy
+      lat: p.lat,
+      lng: p.lng,
+      timestamp: p.timestamp,
+      accuracy: p.accuracy,
+      altitude: Number.isFinite(p.altitude) ? p.altitude : null,
+      altitudeAccuracy: Number.isFinite(p.altitudeAccuracy) ? p.altitudeAccuracy : null,
     }));
 
     saveInProgress = true;
     btnSave.textContent = "Saving...";
     updateToolbarState();
     try {
-      const res = await Promise.resolve(onSaveTrail({ name, note, createdAt, durationMs, distanceMeters, points }));
+      const res = await Promise.resolve(onSaveTrail({
+        name,
+        note,
+        createdAt,
+        durationMs,
+        distanceMeters,
+        elevationGainMeters: cumulativeGain,
+        elevationLossMeters: cumulativeLoss,
+        points
+      }));
       if (res === false) {
         saveInProgress = false;
         btnSave.textContent = "Save";
@@ -525,6 +551,9 @@ function createUnifiedOverlay(options) {
       lat: position.coords.latitude,
       lng: position.coords.longitude,
       accuracy: position.coords.accuracy,
+      // NEW: vertical info (if available)
+      altitude: Number.isFinite(position.coords.altitude) ? position.coords.altitude : null,
+      altitudeAccuracy: Number.isFinite(position.coords.altitudeAccuracy) ? position.coords.altitudeAccuracy : null,
       timestamp,
     };
     const tooInaccurate = Number.isFinite(next.accuracy) && next.accuracy > MAX_TRACK_POINT_ACCURACY_METERS;
@@ -532,6 +561,8 @@ function createUnifiedOverlay(options) {
     // Establish anchor from averaged initial fixes to smooth start
     if (!anchorPoint) {
       if (!anchorStartTime) anchorStartTime = timestamp;
+
+      // keep a small window of initial samples (with altitude if present)
       recentFixes.push(next);
       if (recentFixes.length > REQUIRED_ANCHOR_SAMPLES * 3) recentFixes.shift();
 
@@ -539,10 +570,17 @@ function createUnifiedOverlay(options) {
       const sampleSet = usable.length ? usable : recentFixes.slice();
       const avgLat = sampleSet.reduce((s, f) => s + f.lat, 0) / sampleSet.length;
       const avgLng = sampleSet.reduce((s, f) => s + f.lng, 0) / sampleSet.length;
+
       const accValues = sampleSet.map(s => s.accuracy).filter(Number.isFinite);
       const avgAcc = accValues.length ? accValues.reduce((s,v)=>s+v,0)/accValues.length : next.accuracy;
 
-      me = { lat: avgLat, lng: avgLng, accuracy: avgAcc, timestamp };
+      // average altitude if we have some
+      const altValues = sampleSet.map(s => s.altitude).filter(Number.isFinite);
+      const altAccValues = sampleSet.map(s => s.altitudeAccuracy).filter(Number.isFinite);
+      const avgAlt = altValues.length ? altValues.reduce((s,v)=>s+v,0)/altValues.length : null;
+      const avgAltAcc = altAccValues.length ? altAccValues.reduce((s,v)=>s+v,0)/altAccValues.length : null;
+
+      me = { lat: avgLat, lng: avgLng, accuracy: avgAcc, altitude: avgAlt, altitudeAccuracy: avgAltAcc, timestamp };
       lastFixTimestamp = timestamp;
 
       const sampleCount = sampleSet.length;
@@ -554,10 +592,12 @@ function createUnifiedOverlay(options) {
       readout.textContent = `Locking GPS… ${sampleCount} fix${sampleCount === 1 ? "" : "es"}${Number.isFinite(avgAcc) ? ` (~±${avgAcc.toFixed(0)} m)` : ""}`;
 
       if (meetsAcc || meetsCount || timedOut) {
-        anchorPoint = { lat: avgLat, lng: avgLng, accuracy: avgAcc, timestamp };
+        anchorPoint = { lat: avgLat, lng: avgLng, accuracy: avgAcc, altitude: avgAlt, altitudeAccuracy: avgAltAcc, timestamp };
         track.length = 0;
         track.push({ ...anchorPoint });
         cumulativeDistance = 0;
+        cumulativeGain = 0;
+        cumulativeLoss = 0;
         trackStartTime = timestamp;
         lastFixTimestamp = timestamp;
         draw(true);
@@ -580,15 +620,40 @@ function createUnifiedOverlay(options) {
     const displacement = prev ? haversineMeters(prev, next) : Infinity;
     const significantMove = displacement >= MIN_TRACK_DELTA_METERS;
 
+    const prevAlt = prev?.altitude;
+    const nextAlt = next.altitude;
+    const altAccOk =
+      (!Number.isFinite(next.altitudeAccuracy) || next.altitudeAccuracy <= MAX_ALTITUDE_ACCURACY_METERS) &&
+      (!Number.isFinite(prev?.altitudeAccuracy) || prev.altitudeAccuracy <= MAX_ALTITUDE_ACCURACY_METERS);
+
     if (significantMove) {
       track.push({ ...next });
       if (track.length > MAX_TRACK_POINTS) track.splice(0, track.length - MAX_TRACK_POINTS);
+
       if (prev) {
-        const seg = haversineMeters(prev, next);
-        if (Number.isFinite(seg)) cumulativeDistance += seg;
+        if (Number.isFinite(displacement)) cumulativeDistance += displacement;
         lastHeading = distanceAndDirection(prev, next);
+
+        // Elevation gain/loss (robust to noise)
+        if (Number.isFinite(prevAlt) && Number.isFinite(nextAlt) && altAccOk) {
+          const dAlt = nextAlt - prevAlt;
+          if (Math.abs(dAlt) >= MIN_ELEV_DELTA_METERS) {
+            if (dAlt > 0) cumulativeGain += dAlt;
+            else cumulativeLoss += -dAlt; // abs
+          }
+        }
       }
+
       if (!trackStartTime) trackStartTime = next.timestamp;
+    } else {
+      // Optional: count vertical-only changes even if horizontal displacement is tiny
+      if (prev && Number.isFinite(prevAlt) && Number.isFinite(nextAlt) && altAccOk) {
+        const dAlt = nextAlt - prevAlt;
+        if (Math.abs(dAlt) >= MIN_ELEV_DELTA_METERS) {
+          if (dAlt > 0) cumulativeGain += dAlt;
+          else cumulativeLoss += -dAlt;
+        }
+      }
     }
 
     me = next;
@@ -633,6 +698,11 @@ function createUnifiedOverlay(options) {
       headingEl.textContent = `${lastHeading.bearingDegrees.toFixed(0)}° (${lastHeading.compass})`;
     } else {
       headingEl.textContent = "N/A";
+    }
+    // Elevation
+    if (elevEl) {
+      const fmt = (m) => (m < 100 ? m.toFixed(1) : m.toFixed(0));
+      elevEl.textContent = `+${fmt(cumulativeGain)} m / -${fmt(cumulativeLoss)} m`;
     }
   }
 

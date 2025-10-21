@@ -630,33 +630,57 @@ input:-webkit-autofill, textarea:-webkit-autofill {
   -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
           mask-image: linear-gradient(90deg, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
 }
-
 /* Buttons in the strip never wrap or shrink */
-.sketch-actions .btn{
+.sketch-overlay .sketch-actions .btn {
   flex: 0 0 auto;
   white-space: nowrap;
   scroll-snap-align: start;
   min-width: 150px;
 }
 
+/* Ensure smooth horizontal scrolling on iOS */
+.sketch-overlay .sketch-actions {
+  -webkit-overflow-scrolling: touch;
+}
+
 /* Minimal horizontal scrollbar (desktop) */
-.sketch-actions::-webkit-scrollbar{ height: 8px; }
-.sketch-actions::-webkit-scrollbar-thumb{
+.sketch-overlay .sketch-actions::-webkit-scrollbar { height: 8px; }
+.sketch-overlay .sketch-actions::-webkit-scrollbar-thumb {
   background: rgba(255,255,255,0.22);
   border-radius: 6px;
 }
-.sketch-actions::-webkit-scrollbar-track{ background: transparent; }
+.sketch-overlay .sketch-actions::-webkit-scrollbar-track { background: transparent; }
 
+/* Light/dark contrast for standards-based scrollbars */
 @supports (scrollbar-color: auto) {
-  .sketch-actions{
+  /* default assumes dark surface */
+  .sketch-overlay .sketch-actions {
     scrollbar-width: thin;
     scrollbar-color: rgba(255,255,255,0.22) transparent;
   }
+  /* in light mode, make the thumb darker for contrast */
+  @media (prefers-color-scheme: light) {
+    .sketch-overlay .sketch-actions {
+      scrollbar-color: rgba(0,0,0,0.28) transparent;
+    }
+  }
 }
 
-/* Keyboard focus ring for the toolbar */
-.sketch-actions[tabindex="0"]{ outline: none; }
-.sketch-actions[tabindex="0"]:focus-visible{
-  box-shadow: 0 0 0 2px var(--focus-ring);
+/* Keyboard focus ring for the toolbar container
+   (requires tabindex="0" on the .sketch-actions element) */
+.sketch-overlay .sketch-actions[tabindex="0"] { outline: none; }
+.sketch-overlay .sketch-actions[tabindex="0"]:focus-visible {
+  box-shadow: 0 0 0 2px var(--focus-ring, rgba(66,153,225,0.25));
   border-radius: 10px;
+}
+
+/* Sketch map buttons: darker text on white background (no other changes) */
+.sketch-overlay .sketch-actions .btn.btn-outline:not(.sketch-close) {
+  color: #0f172a !important; /* dark slate text */
+}
+
+/* Keep darker text on hover/focus */
+.sketch-overlay .sketch-actions .btn.btn-outline:not(.sketch-close):hover,
+.sketch-overlay .sketch-actions .btn.btn-outline:not(.sketch-close):focus-visible {
+  color: #0b1220 !important;
 }
