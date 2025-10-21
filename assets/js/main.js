@@ -202,7 +202,10 @@ const FALLBACK_GEONAMES_DATASETS = [
 ];
 const GEONAMES_DATASET_CACHE_KEY = "dalitrail:geonames-datasets";
 const BACKUP_VERSION = 1;
-const BACKUP_PREFIX = "dalitrail:";
+const LOCATIONS_KEY = "dalitrail:locations";
+const NOTES_KEY = "dalitrail:notes";
+const EVENTS_KEY = "dalitrail:events";
+const TRAIL_SESSION_KEY = "dalitrail:session";
 let geonamesDatasets = [];
 let geonamesDatasetOptionsLoaded = false;
 let geonamesDatasetsFetched = false;
@@ -284,6 +287,313 @@ const cacheGeonamesDatasets = (datasets) => {
   try {
     localStorage.setItem(GEONAMES_DATASET_CACHE_KEY, JSON.stringify(datasets));
   } catch {}
+};
+
+const openHiddenFileInput = (input) => {
+  if (!input) return false;
+  input.value = "";
+
+  if (typeof input.showPicker === "function") {
+    try {
+      input.showPicker();
+      return true;
+    } catch (error) {
+      console.warn("File picker showPicker() failed, falling back to click():", error);
+    }
+  }
+
+  const wasHiddenAttr = input.hasAttribute("hidden");
+  if (wasHiddenAttr) input.removeAttribute("hidden");
+
+  const previousStyles = {
+    display: input.style.display,
+    position: input.style.position,
+    visibility: input.style.visibility,
+    top: input.style.top,
+    left: input.style.left,
+  };
+
+  let appliedTemporaryStyle = false;
+  try {
+    const computed = window.getComputedStyle ? window.getComputedStyle(input) : null;
+    if (!computed || computed.display === "none" || computed.visibility === "hidden") {
+      input.style.position = "fixed";
+      input.style.top = "-10000px";
+      input.style.left = "-10000px";
+      input.style.display = "block";
+      input.style.visibility = "hidden";
+      appliedTemporaryStyle = true;
+    }
+    input.click();
+    return true;
+  } catch (error) {
+    console.error("File input click failed:", error);
+    return false;
+  } finally {
+    window.setTimeout(() => {
+      if (appliedTemporaryStyle) {
+        input.style.display = previousStyles.display;
+        input.style.position = previousStyles.position;
+        input.style.visibility = previousStyles.visibility;
+        input.style.top = previousStyles.top;
+        input.style.left = previousStyles.left;
+      }
+      if (wasHiddenAttr) input.setAttribute("hidden", "");
+    }, 0);
+  }
+};
+
+const setBackupStatus = (message) => {
+  if (backupStatusText) backupStatusText.textContent = message;
+};
+
+const readArrayFromStore = (key) => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const readObjectFromStore = (key) => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const createBackupSnapshot = () => {
+  const createdAt = new Date().toISOString();
+  const geonamesInline = (() => {
+    try {
+      return localStorage.getItem(GEONAMES_INLINE_KEY) || null;
+    } catch {
+      return null;
+    }
+  })();
+
+  return {
+    version: BACKUP_VERSION,
+    createdAt,
+    data: {
+      locations: readArrayFromStore(LOCATIONS_KEY),
+      notes: readArrayFromStore(NOTES_KEY),
+      events: readArrayFromStore(EVENTS_KEY),
+      trailSession: readObjectFromStore(TRAIL_SESSION_KEY),
+      geonames: {
+        meta: readObjectFromStore(GEONAMES_META_KEY),
+        inline: geonamesInline,
+        datasets: readArrayFromStore(GEONAMES_DATASET_CACHE_KEY),
+      },
+    },
+  };
+};
+
+const persistJsonOrRemove = (key, value) => {
+  if (value == null) {
+    localStorage.removeItem(key);
+    return;
+  }
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    throw new Error(`Unable to save ${key}: ${error?.message || error}`);
+  }
+};
+
+const mergeArraysById = (current = [], incoming = []) => {
+  const map = new Map();
+  current.forEach((item) => {
+    if (item && typeof item.id === "string") map.set(item.id, item);
+  });
+  incoming.forEach((item) => {
+    if (item && typeof item.id === "string") map.set(item.id, item);
+  });
+  return Array.from(map.values());
+};
+
+const mergeDatasetsById = (current = [], incoming = []) => {
+  const map = new Map();
+  const keyFor = (item) => {
+    if (!item || typeof item !== "object") return null;
+    if (typeof item.id === "string" && item.id) return `id:${item.id}`;
+    if (typeof item.url === "string" && item.url) return `url:${item.url}`;
+    return null;
+  };
+  current.forEach((item) => {
+    const key = keyFor(item);
+    if (key) map.set(key, item);
+  });
+  incoming.forEach((item) => {
+    const key = keyFor(item);
+    if (key) map.set(key, item);
+  });
+  return Array.from(map.values());
+};
+
+const restoreFromBackupSnapshot = (snapshot, mode = "replace") => {
+  if (!snapshot || typeof snapshot !== "object") {
+    throw new Error("Backup file is not valid JSON.");
+  }
+
+  const version = Number.isFinite(snapshot.version) ? snapshot.version : Number(snapshot.version);
+  if (Number.isFinite(version) && version > BACKUP_VERSION) {
+    throw new Error(`Backup version ${snapshot.version} is newer than supported ${BACKUP_VERSION}.`);
+  }
+
+  const { data } = snapshot;
+  if (!data || typeof data !== "object") {
+    throw new Error("Backup payload missing data section.");
+  }
+
+  const incomingLocations = Array.isArray(data.locations) ? data.locations : [];
+  const incomingNotes = Array.isArray(data.notes) ? data.notes : [];
+  const incomingEvents = Array.isArray(data.events) ? data.events : [];
+
+  const existingLocations = mode === "merge" ? readArrayFromStore(LOCATIONS_KEY) : [];
+  const existingNotes = mode === "merge" ? readArrayFromStore(NOTES_KEY) : [];
+  const existingEvents = mode === "merge" ? readArrayFromStore(EVENTS_KEY) : [];
+
+  const mergedLocations = mode === "merge" ? mergeArraysById(existingLocations, incomingLocations) : incomingLocations;
+  const mergedNotes = mode === "merge" ? mergeArraysById(existingNotes, incomingNotes) : incomingNotes;
+  const mergedEvents = mode === "merge" ? mergeArraysById(existingEvents, incomingEvents) : incomingEvents;
+
+  persistJsonOrRemove(LOCATIONS_KEY, mergedLocations);
+  persistJsonOrRemove(NOTES_KEY, mergedNotes);
+  persistJsonOrRemove(EVENTS_KEY, mergedEvents);
+
+  const existingTrailSession = mode === "merge" ? readObjectFromStore(TRAIL_SESSION_KEY) : null;
+  const incomingTrailSession = data.trailSession && typeof data.trailSession === "object" ? data.trailSession : null;
+  const trailSessionToStore = mode === "merge" ? (incomingTrailSession || existingTrailSession) : incomingTrailSession;
+
+  if (trailSessionToStore) {
+    persistJsonOrRemove(TRAIL_SESSION_KEY, trailSessionToStore);
+  } else if (mode === "replace") {
+    localStorage.removeItem(TRAIL_SESSION_KEY);
+  }
+
+  const geonames = data.geonames && typeof data.geonames === "object" ? data.geonames : {};
+  const existingMeta = mode === "merge" ? readObjectFromStore(GEONAMES_META_KEY) : null;
+  const metaToStore = mode === "merge" && geonames.meta == null ? existingMeta : geonames.meta;
+  if (metaToStore && typeof metaToStore === "object") {
+    persistJsonOrRemove(GEONAMES_META_KEY, metaToStore);
+  } else if (mode === "replace") {
+    localStorage.removeItem(GEONAMES_META_KEY);
+  }
+
+  const existingInline = mode === "merge"
+    ? (() => {
+        try {
+          return localStorage.getItem(GEONAMES_INLINE_KEY) || "";
+        } catch {
+          return "";
+        }
+      })()
+    : "";
+  const inline = typeof geonames.inline === "string" ? geonames.inline.trim() : "";
+  const inlineToStore = mode === "merge" ? (inline || existingInline) : inline;
+  if (inlineToStore) {
+    try {
+      localStorage.setItem(GEONAMES_INLINE_KEY, inlineToStore);
+    } catch (error) {
+      throw new Error(`Unable to store GeoNames inline copy: ${error?.message || error}`);
+    }
+  } else if (mode === "replace") {
+    localStorage.removeItem(GEONAMES_INLINE_KEY);
+  }
+
+  const incomingDatasets = Array.isArray(geonames.datasets) ? geonames.datasets : [];
+  const existingDatasets = mode === "merge" ? readArrayFromStore(GEONAMES_DATASET_CACHE_KEY) : [];
+  const datasetsToStore = mode === "merge" ? mergeDatasetsById(existingDatasets, incomingDatasets) : incomingDatasets;
+
+  if (datasetsToStore.length) {
+    persistJsonOrRemove(GEONAMES_DATASET_CACHE_KEY, datasetsToStore);
+  } else if (mode === "replace") {
+    localStorage.removeItem(GEONAMES_DATASET_CACHE_KEY);
+  }
+
+  return {
+    locations: mergedLocations.length,
+    notes: mergedNotes.length,
+    events: mergedEvents.length,
+    mode,
+  };
+};
+
+const triggerBackupDownload = () => {
+  if (!backupDownloadBtn) return;
+  backupDownloadBtn.disabled = true;
+  setBackupStatus("Preparing backup file...");
+  logAppEvent("Backup export requested.");
+  try {
+    const snapshot = createBackupSnapshot();
+    const payload = JSON.stringify(snapshot, null, 2);
+    const blob = new Blob([payload], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `dalitrail-backup-${timestamp}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setBackupStatus("Backup downloaded. Store it somewhere safe.");
+    logAppEvent("Backup exported.");
+  } catch (error) {
+    console.error("Backup export failed:", error);
+    setBackupStatus(`Unable to create backup: ${error?.message || error}`);
+    logAppEvent(`Backup export failed: ${error?.message || error}`);
+  } finally {
+    backupDownloadBtn.disabled = false;
+  }
+};
+
+const handleBackupFileSelection = async () => {
+  if (!backupFileInput) return;
+  const file = backupFileInput.files?.[0];
+  backupFileInput.value = "";
+  if (!file) return;
+
+  backupRestoreBtn && (backupRestoreBtn.disabled = true);
+  const sizeLabel = Number.isFinite(file.size) ? formatBytes(file.size) : "unknown size";
+  setBackupStatus(`Reading ${file.name} (${sizeLabel})...`);
+  logAppEvent(`Backup restore started from ${file.name} (${sizeLabel}).`);
+
+  try {
+    const text = await file.text();
+    const snapshot = JSON.parse(text);
+    const proceed = window.confirm("Restore data from this backup file?");
+    if (!proceed) {
+      setBackupStatus("Restore cancelled.");
+      logAppEvent("Backup restore cancelled by user.");
+      backupRestoreBtn && (backupRestoreBtn.disabled = false);
+      return;
+    }
+    const mergePreferred = window.confirm(
+      "Merge backup with existing data?\n\nChoose OK to merge (keep current items and add from the backup).\nChoose Cancel to replace everything with the backup file."
+    );
+    const mode = mergePreferred ? "merge" : "replace";
+    const summary = restoreFromBackupSnapshot(snapshot, mode);
+    const verb = mode === "merge" ? "merged" : "restored";
+    setBackupStatus(`Backup ${verb}. Reloading to apply changes...`);
+    logAppEvent(
+      `Backup ${verb} (${summary.locations} locations, ${summary.notes} notes, ${summary.events} events).`
+    );
+    window.setTimeout(() => window.location.reload(), 900);
+  } catch (error) {
+    console.error("Backup restore failed:", error);
+    setBackupStatus(`Unable to restore backup: ${error?.message || error}`);
+    logAppEvent(`Backup restore failed: ${error?.message || error}`);
+    backupRestoreBtn && (backupRestoreBtn.disabled = false);
+  }
 };
 
 const setGeonamesStatus = (message) => {
@@ -545,8 +855,12 @@ geonamesDownloadConfirm?.addEventListener("click", async () => {
 
 geonamesConnectBtn?.addEventListener("click", () => {
   if (!geonamesFileInput) return;
-  geonamesFileInput.value = "";
-  geonamesFileInput.click();
+  const opened = openHiddenFileInput(geonamesFileInput);
+  if (!opened) {
+    logAppEvent("Unable to open GeoNames file picker.");
+    setGeonamesStatus("File picker blocked. Adjust browser settings and try again.");
+    return;
+  }
   logAppEvent("Prompted for GeoNames file picker.");
 });
 
@@ -555,6 +869,24 @@ geonamesFileInput?.addEventListener("change", () => {
   if (!file) return;
   void handleGeonamesFileSelection(file);
   geonamesFileInput.value = "";
+});
+
+backupDownloadBtn?.addEventListener("click", () => {
+  triggerBackupDownload();
+});
+
+backupRestoreBtn?.addEventListener("click", () => {
+  setBackupStatus("Select a backup JSON file to restore.");
+  if (!backupFileInput) return;
+  const opened = openHiddenFileInput(backupFileInput);
+  if (!opened) {
+    setBackupStatus("Unable to open file picker. Check browser permissions.");
+    logAppEvent("Backup restore picker blocked by browser.");
+  }
+});
+
+backupFileInput?.addEventListener("change", () => {
+  void handleBackupFileSelection();
 });
 
 openLocationViewBtn?.addEventListener("click", () => {

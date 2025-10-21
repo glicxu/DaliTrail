@@ -40,6 +40,10 @@ body {
   align-items: center;
   justify-content: center;
   padding: 24px;
+  padding-left: max(24px, env(safe-area-inset-left, 0px));
+  padding-right: max(24px, env(safe-area-inset-right, 0px));
+  padding-top: max(24px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
 }
 
 /* App shell */
@@ -55,6 +59,37 @@ body {
   gap: 24px;
   backdrop-filter: blur(10px);
   box-shadow: var(--shadow-strong);
+}
+
+@media (max-width: 768px) {
+  body {
+    align-items: stretch;
+    justify-content: stretch;
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  }
+
+  .app {
+    border-radius: 0;
+    min-height: 100vh;
+    max-width: none;
+    padding: 24px 20px 32px;
+    box-shadow: none;
+    gap: 20px;
+  }
+
+  .app-header {
+    padding-top: 40px;
+  }
+
+  .home-view {
+    padding-right: 0;
+    padding-bottom: 56px;
+  }
+
+  .about-btn {
+    right: 12px;
+    bottom: 12px;
+  }
 }
 
 /* === Header (consolidated; remove previous duplicates) ==================== */
