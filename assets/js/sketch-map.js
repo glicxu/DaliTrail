@@ -27,6 +27,7 @@ const MAX_TRACK_POINTS = 1500;
 const MIN_TRACK_DELTA_METERS = 6;
 const REQUIRED_ANCHOR_SAMPLES = 3;
 const ANCHOR_MAX_ACCURACY_METERS = 45;
+const MAX_TRACK_POINT_ACCURACY_METERS = 120;
 const ANCHOR_TIMEOUT_MS = 3000;
 
 function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTrail = false, onSaveTrail = null, initialAnchor = null }) {
@@ -89,9 +90,9 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTr
     .sketch-overlay{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);backdrop-filter:saturate(110%) blur(2px);display:flex;align-items:center;justify-content:center;padding:1rem}
     .sketch-panel{background:#fff;color:#111827;max-width:960px;width:min(96%,960px);border-radius:16px;box-shadow:0 18px 50px rgba(0,0,0,.35);padding:1rem;border:1px solid rgba(0,0,0,.08)}
     @media (prefers-color-scheme: dark){.sketch-panel{background:#0f172a;color:#f8fafc;border-color:rgba(255,255,255,.12)}}
-    .sketch-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem}
-    .sketch-header h2{margin:0;font-size:1.15rem;font-weight:700;letter-spacing:.2px}
-    .sketch-actions{display:flex;gap:.5rem}
+    .sketch-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem;gap:.75rem;flex-wrap:wrap}
+    .sketch-header h2{margin:0;font-size:1.15rem;font-weight:700;letter-spacing:.2px;flex:1 1 auto;min-width:12rem}
+    .sketch-actions{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:flex-end;align-items:center}
     .sketch-body{display:grid;gap:.5rem}
     #sketch-canvas{display:block;width:min(92vw,900px);height:min(72vh,520px);background:#ffffff;border-radius:12px;border:1px solid rgba(0,0,0,.1)}
     @media (prefers-color-scheme: dark){#sketch-canvas{background:#0b1220;border-color:rgba(255,255,255,.1)}}
@@ -104,10 +105,16 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTr
     .sketch-stats .label{display:block;font-weight:700;letter-spacing:.02em;color:#475569}
     @media (prefers-color-scheme: dark){.sketch-stats .label{color:#cbd5f5}}
     .sketch-readout{font-family:ui-monospace,monospace;font-size:.95rem;opacity:.9}
-    .sketch-actions .btn{padding:.55rem 1rem;font-size:1rem;border-radius:14px;font-weight:600;border-width:2px;background:rgba(37,99,235,0.12);color:#1d4ed8;border-color:rgba(37,99,235,0.55);box-shadow:0 6px 16px rgba(37,99,235,0.25)}
+    .sketch-actions .btn{padding:.5rem .9rem;font-size:.95rem;border-radius:12px;font-weight:600;border-width:2px;flex:0 1 160px;background:rgba(37,99,235,0.12);color:#1d4ed8;border-color:rgba(37,99,235,0.55);box-shadow:0 6px 16px rgba(37,99,235,0.25)}
     .sketch-actions .btn.sketch-close{color:#dc2626;border-color:rgba(220,38,38,0.5);background:rgba(220,38,38,0.12);box-shadow:0 6px 16px rgba(220,38,38,0.2)}
     .sketch-actions .btn:focus-visible{outline:3px solid rgba(59,130,246,0.75);outline-offset:2px}
     .sketch-actions .btn:active{transform:scale(.97)}
+    @media (max-width: 640px){
+      .sketch-header{flex-direction:column;align-items:stretch}
+      .sketch-header h2{min-width:0}
+      .sketch-actions{width:100%;justify-content:stretch}
+      .sketch-actions .btn{flex:1 1 100%; width:100%}
+    }
     @media (prefers-color-scheme: dark){
       .sketch-actions .btn{background:rgba(96,165,250,0.22);color:#e0f2fe;border-color:rgba(191,219,254,0.65);box-shadow:0 8px 20px rgba(59,130,246,0.35)}
       .sketch-actions .btn.sketch-close{color:#fecaca;border-color:rgba(248,113,113,0.55);background:rgba(248,113,113,0.22);box-shadow:0 8px 20px rgba(248,113,113,0.3)}
@@ -379,7 +386,7 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTr
     accuracy: position.coords.accuracy,
     timestamp,
   };
-  const accuracyTooHigh = Number.isFinite(next.accuracy) && next.accuracy > MAX_ACCURACY_METERS;
+  const accuracyTooHigh = Number.isFinite(next.accuracy) && next.accuracy > MAX_TRACK_POINT_ACCURACY_METERS;
 
   if (anchorPoint && accuracyTooHigh) {
     me = next;
