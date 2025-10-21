@@ -408,6 +408,8 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTr
     const input = window.prompt("Name this track", defaultName);
     if (input === null) return;
     const name = input.trim() || defaultName;
+    const noteInput = window.prompt("Add a note for this track (optional)", "");
+    const note = typeof noteInput === "string" ? noteInput.trim() : "";
     const createdAt = trackStartTime || Date.now();
     const durationMs = Math.max(0, (lastFixTimestamp ?? createdAt) - (trackStartTime ?? createdAt));
     const distanceMeters = cumulativeDistance;
@@ -422,7 +424,7 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTr
     btnSave.disabled = true;
     btnSave.textContent = "Saving...";
     try {
-      const result = saveCallback ? await Promise.resolve(saveCallback({ name, createdAt, durationMs, distanceMeters, points })) : true;
+      const result = saveCallback ? await Promise.resolve(saveCallback({ name, note, createdAt, durationMs, distanceMeters, points })) : true;
       if (result === false) {
         btnSave.disabled = false;
         btnSave.textContent = "Save track";

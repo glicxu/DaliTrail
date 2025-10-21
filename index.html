@@ -168,18 +168,18 @@
         </section>
       </section>
 
-      <div class="location-saved-bar">
-        <section class="saved-tracks-panel" aria-label="Saved tracks">
-          <div class="saved-tracks-header">
-            <h3>Saved Tracks</h3>
-          </div>
-          <div class="saved-tracks-strip" id="saved-tracks-strip" role="list"></div>
-          <p class="status-text" id="saved-tracks-empty">No tracks saved yet. Record a track to see it here.</p>
-        </section>
-        <div class="saved-locations-action">
-          <button class="btn btn-outline" id="open-location-history-btn" disabled>Saved Location</button>
-        </div>
+      <div class="saved-actions">
+        <button class="btn btn-outline" id="open-track-history-btn" disabled>Saved Track</button>
+        <button class="btn btn-outline" id="open-location-history-btn" disabled>Saved Location</button>
       </div>
+    </section>
+
+    <section class="view track-view" data-view="tracks" hidden>
+      <h2>Saved Tracks</h2>
+      <p class="section-copy">Browse your recorded tracks. Select one to open it on a map.</p>
+
+      <ul id="tracks-list"></ul>
+      <p class="status-text" id="tracks-status">No tracks saved yet.</p>
     </section>
 
     <section class="view search-view" data-view="search" hidden>

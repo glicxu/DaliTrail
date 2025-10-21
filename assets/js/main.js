@@ -24,6 +24,7 @@ const homeView = document.querySelector('.home-view[data-view="home"]');
 const aboutView = document.querySelector('.about-view[data-view="about"]');
 const locationView = document.querySelector('.location-view[data-view="location"]');
 const locationHistoryView = document.querySelector('.location-history-view[data-view="location-history"]');
+const trackView = document.querySelector('.track-view[data-view="tracks"]');
 const notesView = document.querySelector('.notes-view[data-view="notes"]');
 const eventsView = document.querySelector('.event-view[data-view="events"]');
 const searchView = document.querySelector('.search-view[data-view="search"]');
@@ -95,6 +96,7 @@ const kmlInput = document.getElementById("kmlFileInput");
 
 // History actions
 const openLocationHistoryBtn = document.getElementById("open-location-history-btn");
+const openTrackHistoryBtn = document.getElementById("open-track-history-btn");
 const historyViewBtn = document.getElementById("history-view-btn");
 const historyShareBtn = document.getElementById("history-share-btn");
 const historyDeleteBtn = document.getElementById("history-delete-btn");
@@ -133,7 +135,7 @@ if (installSection) {
 }
 
 // ---------- Views ----------
-const VIEWS = { home: homeView, about: aboutView, location: locationView, "location-history": locationHistoryView, events: eventsView, notes: notesView, search: searchView };
+const VIEWS = { home: homeView, about: aboutView, location: locationView, "location-history": locationHistoryView, tracks: trackView, events: eventsView, notes: notesView, search: searchView };
 
 const showView = (view) => {
   if (!(view in VIEWS)) throw new Error(`Unknown view: ${view}`);
@@ -922,6 +924,12 @@ openLocationHistoryBtn?.addEventListener("click", () => {
   logAppEvent("Viewing saved locations.");
 });
 
+openTrackHistoryBtn?.addEventListener("click", () => {
+  if (openTrackHistoryBtn.disabled) return;
+  showView("tracks");
+  logAppEvent("Viewing saved tracks.");
+});
+
 historyViewBtn?.addEventListener("click", () => {
   if (historyViewBtn.disabled) return;
   openSelectedLocations();
@@ -946,7 +954,7 @@ historyDeleteBtn?.addEventListener("click", () => {
 
 backBtn?.addEventListener("click", () => {
   const current = appRoot?.dataset.view;
-  if (current === "location-history" || current === "search") showView("location");
+  if (current === "location-history" || current === "tracks" || current === "search") showView("location");
   else showView("home");
 });
 

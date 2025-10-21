@@ -28,8 +28,9 @@ let latestLocationCard;
 let openLocationHistoryBtn;
 let locationsList;
 let locationHistoryStatus;
-let savedTracksStrip;
-let savedTracksEmpty;
+let openTrackHistoryBtn;
+let tracksList;
+let tracksStatus;
 
 // Optional Sun/Moon card
 let sunCard, sunRiseEl, sunSetEl, moonCard, moonRiseEl, moonSetEl, moonPhaseEl;
@@ -151,14 +152,15 @@ const loadSavedTracks = () => {
         const points = normalizeTrackPoints(entry.points);
         if (!points.length) return null;
         const createdAt = Number(entry.createdAt) || (points[0]?.timestamp ?? Date.now());
-        return {
-          id: typeof entry.id === "string" ? entry.id : `track-${createdAt}-${Math.random().toString(16).slice(2, 8)}`,
-          name: typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : "Saved track",
-          createdAt,
-          distanceMeters: Number(entry.distanceMeters) >= 0 ? Number(entry.distanceMeters) : 0,
-          durationMs: Number(entry.durationMs) >= 0 ? Number(entry.durationMs) : 0,
-          points,
-        };
+      return {
+        id: typeof entry.id === "string" ? entry.id : `track-${createdAt}-${Math.random().toString(16).slice(2, 8)}`,
+        name: typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : "Saved track",
+        note: typeof entry.note === "string" ? entry.note.trim() : "",
+        createdAt,
+        distanceMeters: Number(entry.distanceMeters) >= 0 ? Number(entry.distanceMeters) : 0,
+        durationMs: Number(entry.durationMs) >= 0 ? Number(entry.durationMs) : 0,
+        points,
+      };
       })
       .filter(Boolean)
       .sort((a, b) => b.createdAt - a.createdAt)
@@ -207,42 +209,72 @@ const updateLocationStatusSummary = ({ force = false } = {}) => {
   const parts = [];
   if (locationCount) parts.push(`${locationCount} saved location${locationCount === 1 ? "" : "s"}`);
   if (trackCount) parts.push(`${trackCount} saved track${trackCount === 1 ? "" : "s"}`);
-  locationStatusText.textContent = parts.join(" • ");
+  locationStatusText.textContent = parts.join(" \u2022 ");
 };
 
-const renderSavedTracks = () => {
-  if (!savedTracksStrip || !savedTracksEmpty) return;
-  savedTracksStrip.innerHTML = "";
+const renderTrackHistory = () => {
+  const hasList = Boolean(tracksList);
+  const hasStatus = Boolean(tracksStatus);
+  if (hasList) tracksList.innerHTML = "";
   if (!savedTracks.length) {
-    savedTracksStrip.setAttribute("hidden", "");
-    savedTracksEmpty.hidden = false;
+    if (hasStatus) tracksStatus.textContent = "No tracks saved yet.";
+    openTrackHistoryBtn && (openTrackHistoryBtn.disabled = true);
     updateLocationStatusSummary();
     return;
   }
 
-  savedTracksStrip.removeAttribute("hidden");
-  savedTracksEmpty.hidden = true;
+  openTrackHistoryBtn && (openTrackHistoryBtn.disabled = false);
+  if (hasStatus) tracksStatus.textContent = "Select a track to view it or remove it.";
 
-  savedTracks.forEach((track) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "saved-track-card";
-    btn.dataset.trackId = track.id;
+  if (hasList) {
+    savedTracks.forEach((track) => {
+      const item = document.createElement("li");
+      item.className = "location-history-item";
+      item.dataset.id = track.id;
 
-    const name = document.createElement("span");
-    name.className = "track-name";
-    name.textContent = track.name;
-    btn.appendChild(name);
+      const card = document.createElement("div");
+    card.className = "location-card";
 
-    const meta = document.createElement("span");
-    meta.className = "track-meta";
-    meta.textContent = `${formatDistanceShort(track.distanceMeters)} • ${formatDurationShort(track.durationMs)}`;
-    btn.appendChild(meta);
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const timestamp = formatTimestamp(track.createdAt);
+    const summary = `${formatDistanceShort(track.distanceMeters)} \u2022 ${formatDurationShort(track.durationMs)} \u2022 ${track.points.length} point${track.points.length === 1 ? "" : "s"}`;
+    meta.innerHTML = `
+      <span>${timestamp}</span>
+      <span>${summary}</span>
+    `;
+    card.appendChild(meta);
 
-    savedTracksStrip.appendChild(btn);
-  });
+    if (track.note) {
+      const note = document.createElement("p");
+      note.className = "note";
+      note.textContent = track.note;
+      card.appendChild(note);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    actions.innerHTML = `
+      <button class="btn btn-primary" data-action="view">View</button>
+      <button class="btn btn-outline" data-action="delete">Delete</button>
+    `;
+    card.appendChild(actions);
+
+    item.appendChild(card);
+    tracksList.appendChild(item);
+    });
+  }
 
   updateLocationStatusSummary();
+};
+
+const deleteTrackById = (trackId) => {
+  const before = savedTracks.length;
+  savedTracks = savedTracks.filter((track) => track.id !== trackId);
+  if (savedTracks.length === before) return false;
+  persistSavedTracks();
+  renderTrackHistory();
+  return true;
 };
 
 const saveRecordedTrack = (payload) => {
@@ -261,6 +293,7 @@ const saveRecordedTrack = (payload) => {
   const entry = {
     id: `track-${createdAt}-${Math.random().toString(16).slice(2, 8)}`,
     name: typeof payload.name === "string" && payload.name.trim() ? payload.name.trim() : `Track ${new Date(createdAt).toLocaleString()}`,
+    note: typeof payload.note === "string" ? payload.note.trim() : "",
     createdAt,
     distanceMeters: Number(payload.distanceMeters) >= 0 ? Number(payload.distanceMeters) : 0,
     durationMs: Number(payload.durationMs) >= 0 ? Number(payload.durationMs) : 0,
@@ -269,11 +302,10 @@ const saveRecordedTrack = (payload) => {
 
   savedTracks = [entry, ...savedTracks].slice(0, MAX_SAVED_TRACKS);
   persistSavedTracks();
-  renderSavedTracks();
+  renderTrackHistory();
   if (locationStatusText) locationStatusText.textContent = `Track saved as ${entry.name}.`;
   return true;
 };
-
 const openSavedTrack = async (track) => {
   if (!track || !Array.isArray(track.points) || !track.points.length) return;
   try {
@@ -614,6 +646,7 @@ export const renderLocationHistory = () => {
     locationHistoryStatus.textContent = "No saved locations yet.";
     ensureHistoryActionButtons();
     updateHistoryActions();
+    updateLocationStatusSummary();
     return;
   }
 
@@ -624,7 +657,7 @@ export const renderLocationHistory = () => {
 
   const createHistoryItem = (entry) => {
     const item = document.createElement("li");
-    item.className = "location-history-item";
+    item.className = "location-history-item track-history-item";
     item.dataset.id = entry.id;
 
     const checkbox = document.createElement("input");
@@ -738,6 +771,7 @@ export const renderLocationHistory = () => {
 
   ensureHistoryActionButtons();
   updateHistoryActions();
+  updateLocationStatusSummary();
 };
 
 function ensureHistoryActionButtons() {
@@ -1322,10 +1356,11 @@ function safeInit() {
     locationStatusText = document.getElementById("location-status");
     latestLocationCard = document.getElementById("latest-location-card");
     openLocationHistoryBtn = document.getElementById("open-location-history-btn");
+    openTrackHistoryBtn = document.getElementById("open-track-history-btn");
     locationsList = document.getElementById("locations-list");
     locationHistoryStatus = document.getElementById("location-history-status");
-    savedTracksStrip = document.getElementById("saved-tracks-strip");
-    savedTracksEmpty = document.getElementById("saved-tracks-empty");
+    tracksList = document.getElementById("tracks-list");
+    tracksStatus = document.getElementById("tracks-status");
 
     sunCard = document.getElementById("sun-card");
     sunRiseEl = document.getElementById("sunrise-text");
@@ -1338,19 +1373,7 @@ function safeInit() {
     hideLegacyModeUI(locationView);
     ensureActionButtons(locationView);
 
-    if (savedTracksStrip) {
-      savedTracksStrip.addEventListener("click", (event) => {
-        const button = event.target?.closest?.("button.saved-track-card");
-        if (!(button instanceof HTMLButtonElement)) return;
-        const trackId = button.dataset.trackId;
-        if (!trackId) return;
-        const track = savedTracks.find((t) => t.id === trackId);
-        if (!track) return;
-        void openSavedTrack(track);
-      });
-    }
-
-    // ✅ BIND LISTENERS NOW THAT ELEMENTS EXIST
+    // Bind listeners now that elements exist
     if (locationsList) {
       locationsList.addEventListener("change", (event) => {
         const target = event.target;
@@ -1361,6 +1384,27 @@ function safeInit() {
         else selectedLocationIds.delete(id);
         updateHistoryActions();
       }, { passive: true });
+    }
+
+    if (tracksList) {
+      tracksList.addEventListener("click", (event) => {
+        const button = event.target?.closest?.("button[data-action]");
+        if (!(button instanceof HTMLButtonElement)) return;
+        const item = button.closest(".location-history-item");
+        const trackId = item?.dataset.id;
+        if (!trackId) return;
+        const track = savedTracks.find((t) => t.id === trackId);
+        if (!track) return;
+        if (button.dataset.action === "view") {
+          void openSavedTrack(track);
+          return;
+        }
+        if (button.dataset.action === "delete") {
+          const confirmed = window.confirm("Delete this track? This cannot be undone.");
+          if (!confirmed) return;
+          deleteTrackById(trackId);
+        }
+      });
     }
 
     if (latestLocationCard) {
@@ -1384,16 +1428,19 @@ function safeInit() {
     loadSavedTracks();
     renderLatestLocation();
     renderLocationHistory();
-    renderSavedTracks();
+    renderTrackHistory();
     updateLocationStatusSummary({ force: true });
   } catch (err) {
     // Fail gracefully so Home buttons still work
     console.error("location.js init failed:", err);
   }
 }
-
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", safeInit, { once: true });
 } else {
   safeInit();
 }
+
+
+
+
