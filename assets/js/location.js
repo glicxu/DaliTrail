@@ -274,6 +274,9 @@ const deleteTrackById = (trackId) => {
   if (savedTracks.length === before) return false;
   persistSavedTracks();
   renderTrackHistory();
+  if (savedTracks.length) {
+    tracksStatus && (tracksStatus.textContent = "Track removed.");
+  }
   return true;
 };
 
@@ -1440,6 +1443,7 @@ if (document.readyState === "loading") {
 } else {
   safeInit();
 }
+
 
 
 

@@ -24,7 +24,10 @@ export function openSketchMapOverlay(input) {
 // ---------- Navigate Mode (Walk to a target) ---------------------------------
 
 const MAX_TRACK_POINTS = 1500;
-const MIN_TRACK_DELTA_METERS = 3;
+const MIN_TRACK_DELTA_METERS = 6;
+const REQUIRED_ANCHOR_SAMPLES = 4;
+const ANCHOR_MAX_ACCURACY_METERS = 25;
+const ANCHOR_TIMEOUT_MS = 4000;
 
 function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTrail = false, onSaveTrail = null }) {
   const hasTargetPoint = hasTarget({ target });
@@ -129,6 +132,9 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTr
   const speedEl = recordTrail ? overlay.querySelector("#sketch-speed") : null;
   const headingEl = recordTrail ? overlay.querySelector("#sketch-heading") : null;
 
+  const anchorSamples = [];
+  let anchorStartTime = null;
+  let anchorPoint = null;
   const camera = { scale: 1, offsetX: 0, offsetY: 0, dpr: 1 };
   let followMe = !!follow;
   let origin = targetPoint ? { lat: targetPoint.lat, lng: targetPoint.lng } : { lat: 0, lng: 0 };
@@ -312,6 +318,14 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTr
   function updateReadout() {
     if (!readout) return;
     if (recordTrail) {
+      if (recordTrail && !anchorPoint) {
+        const sampleCount = anchorSamples.length;
+        readout.textContent =
+          sampleCount > 1
+            ? `Locking GPS\u2026 ${sampleCount} samples`
+            : "Locking GPS\u2026";
+        return;
+      }
       if (!me) {
         readout.textContent = "Waiting for GPS fix...";
         return;
@@ -334,34 +348,78 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTr
 
   function handleFix(position) {
     const timestamp = Number.isFinite(position.timestamp) ? position.timestamp : Date.now();
-    const next = {
-      lat: position.coords.latitude,
-      lng: position.coords.longitude,
-      accuracy: position.coords.accuracy,
-      timestamp,
-    };
+  const next = {
+    lat: position.coords.latitude,
+    lng: position.coords.longitude,
+    accuracy: position.coords.accuracy,
+    timestamp,
+  };
+  const accuracyTooHigh = Number.isFinite(next.accuracy) && next.accuracy > MAX_ACCURACY_METERS;
 
-    const displacement = me ? haversineMeters(me, next) : Infinity;
-    const shouldRecord = !me || displacement >= MIN_TRACK_DELTA_METERS;
+  if (anchorPoint && accuracyTooHigh) {
+    me = next;
+    lastFixTimestamp = timestamp;
+    updateReadout();
+    return;
+  }
 
-    if (shouldRecord) {
-      const previous = track.length ? track[track.length - 1] : null;
+    if (recordTrail && !anchorPoint) {
+      if (!anchorStartTime) anchorStartTime = timestamp;
+      anchorSamples.push(next);
+      if (anchorSamples.length > REQUIRED_ANCHOR_SAMPLES * 2) anchorSamples.shift();
+
+      const accurateSamples = anchorSamples.filter(
+        (sample) => Number.isFinite(sample.accuracy) && sample.accuracy <= ANCHOR_MAX_ACCURACY_METERS
+      );
+      const sampleSet = accurateSamples.length >= REQUIRED_ANCHOR_SAMPLES ? accurateSamples : anchorSamples.slice();
+      const avgLat = sampleSet.reduce((sum, sample) => sum + sample.lat, 0) / sampleSet.length;
+      const avgLng = sampleSet.reduce((sum, sample) => sum + sample.lng, 0) / sampleSet.length;
+      const accValues = sampleSet.map((sample) => sample.accuracy).filter((value) => Number.isFinite(value));
+      const avgAcc = accValues.length ? accValues.reduce((sum, value) => sum + value, 0) / accValues.length : next.accuracy;
+
+      me = { lat: avgLat, lng: avgLng, accuracy: avgAcc, timestamp };
+      lastFixTimestamp = timestamp;
+      updateReadout();
+
+      const enoughSamples = sampleSet.length >= REQUIRED_ANCHOR_SAMPLES;
+      const timedOut = timestamp - anchorStartTime >= ANCHOR_TIMEOUT_MS;
+      if (enoughSamples || timedOut) {
+        anchorPoint = { lat: avgLat, lng: avgLng, accuracy: avgAcc, timestamp };
+        const anchorRecord = {
+          lat: anchorPoint.lat,
+          lng: anchorPoint.lng,
+          accuracy: anchorPoint.accuracy ?? null,
+          timestamp,
+        };
+        anchorSamples.length = 0;
+        track.length = 0;
+        track.push(anchorRecord);
+        cumulativeDistance = 0;
+        trackStartTime = timestamp;
+        lastFixTimestamp = timestamp;
+        draw(true);
+        updateReadout();
+        updateStats();
+      }
+      return;
+    }
+
+    const previousRecorded = track.length ? track[track.length - 1] : null;
+    const displacement = previousRecorded ? haversineMeters(previousRecorded, next) : Infinity;
+
+    if (displacement >= MIN_TRACK_DELTA_METERS) {
       track.push({ lat: next.lat, lng: next.lng, accuracy: next.accuracy, timestamp: next.timestamp });
       if (track.length > MAX_TRACK_POINTS) {
         track.splice(0, track.length - MAX_TRACK_POINTS);
       }
-      if (recordTrail && previous) {
-        const segment = haversineMeters(previous, next);
-        if (Number.isFinite(segment)) cumulativeDistance += segment;
-        lastHeading = distanceAndDirection(previous, next);
+      if (recordTrail && previousRecorded) {
+      const segment = haversineMeters(previousRecorded, next);
+      if (Number.isFinite(segment)) cumulativeDistance += segment;
+      lastHeading = distanceAndDirection(previousRecorded, next);
       }
       if (recordTrail && !trackStartTime) {
         trackStartTime = next.timestamp;
       }
-    }
-
-    if (recordTrail && !trackStartTime) {
-      trackStartTime = next.timestamp;
     }
 
     me = next;
@@ -1051,3 +1109,8 @@ function getTheme() {
     stroke: "rgba(15,23,42,0.35)",
   };
 }
+
+
+
+
+
