@@ -12,9 +12,17 @@ import {
 
 import { updateMetrics, restoreTrailState } from "./track.js";
 
+// NEW: app-wide logger bridge (no circular deps)
+import { setLogger, logAppEvent as appEvent } from "/assets/js/utils.js";
+
 import "/assets/js/notes.js";
 import "/assets/js/events.js";
 import "/assets/js/search.js";
+
+import { createPwaHelpers } from "./pwa-helpers.js";
+
+
+
 
 
 // ---------- DOM ----------
@@ -61,7 +69,28 @@ const backupRestoreBtn = document.getElementById("backup-restore-btn");
 const backupFileInput = document.getElementById("backup-file-input");
 const backupStatusText = document.getElementById("backup-status");
 
-const logAppEvent = (message) => {
+// share state with the helpers
+const pwaState = {
+  deferredInstallPrompt: null,
+  installPromptWaitTimeoutId: null,
+};
+// make sure main.js uses pwaState.* instead of bare variables:
+let deferredInstallPrompt = pwaState.deferredInstallPrompt;
+let installPromptWaitTimeoutId = pwaState.installPromptWaitTimeoutId;
+
+// and wherever you set them later, also mirror back into pwaState:
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  pwaState.deferredInstallPrompt = e;
+  deferredInstallPrompt = e; // keep existing references working
+  updateInstallHint();
+});
+
+// ---------- Logger wiring (NEW) ----------
+/**
+ * Append a single line to the on-page log UI.
+ */
+function appendUILogLine(message) {
   if (!logList) return;
   const li = document.createElement("li");
   const now = new Date();
@@ -72,13 +101,43 @@ const logAppEvent = (message) => {
   logSection?.removeAttribute("hidden");
   if (logSection instanceof HTMLDetailsElement) logSection.open = true;
   toggleLogBtn?.classList.add("notify");
+}
+
+/**
+ * Local convenience used throughout this file (legacy one-arg API).
+ * Also forwards to the new utils logger so other modules can observe it.
+ */
+const logAppEvent = (message) => {
+  const msg = typeof message === "string" ? message : String(message);
+  appendUILogLine(msg);
+  // Emit into app-wide logger as a structured event
+  appEvent("ui.message", { message: msg });
 };
 
+/**
+ * Global app logger sink used by utils.logAppEvent(event, data).
+ * This receives structured events from *all* modules.
+ */
+function LogAppEvent(event, data = {}) {
+  try {
+    const hasData = data && typeof data === "object" && Object.keys(data).length > 0;
+    appendUILogLine(hasData ? `${event} ${JSON.stringify(data)}` : String(event));
+  } catch {
+    // Best-effort: never throw from logging
+  }
+}
+// Register sink & flush any buffered logs from utils
+setLogger(LogAppEvent);
+
+// Keep compatibility with any early DOM-broadcast logs (emitted before setLogger)
 if (typeof window !== "undefined") {
-  window.addEventListener("dalitrail:log", (event) => {
-    const message = event?.detail?.message;
-    if (typeof message === "string" && message.trim()) {
-      logAppEvent(message);
+  window.addEventListener("dalitrail:log", (evt) => {
+    const detail = evt?.detail || {};
+    // Prefer structured {event,data}; fallback to {message}
+    if (typeof detail.event === "string") {
+      LogAppEvent(detail.event, detail.data || {});
+    } else if (typeof detail.message === "string") {
+      logAppEvent(detail.message);
     }
   });
 }
@@ -108,9 +167,29 @@ const isAndroidDevice = typeof navigator !== "undefined" && /android/i.test(navi
 const isWindowsDevice = typeof navigator !== "undefined" && /windows/i.test(navigator.userAgent || "");
 const isSecure = window.isSecureContext || window.location.hostname === "localhost";
 
-let deferredInstallPrompt = null;
+
+
+// build helpers bound to main.js refs and platform flags
+const {
+  getManualInstallInstructions,
+  updateInstallHint,
+  promptInstall,
+  clearInstallPromptWait,
+  setStatus,
+  updatePermissionBanner,
+} = createPwaHelpers({
+  state: pwaState,
+  installHintText,
+  installStatusText,
+  isIosDevice,
+  isAndroidDevice,
+  isWindowsDevice,
+});
+
+
+//let deferredInstallPrompt = null;
 let installClickRequested = false;
-let installPromptWaitTimeoutId = null;
+//let installPromptWaitTimeoutId = null;
 let swRegistration = null;
 
 if (installSection) {
@@ -998,7 +1077,6 @@ updateBtn?.addEventListener("click", async () => {
 });
 
 
-
 // PWA: service worker + install prompt
 if ("serviceWorker" in navigator) {
   const registerServiceWorker = () => {
@@ -1137,4 +1215,6 @@ navigator.serviceWorker?.addEventListener("controllerchange", () => {
 });
 
 
-
+// ---------- Helpers already present elsewhere in your file ----------
+// (Assumes promptInstall, clearInstallPromptWait, updateInstallHint, setStatus,
+//  updatePermissionBanner, getManualInstallInstructions, etc. are defined below)

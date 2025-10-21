@@ -1,9 +1,17 @@
 // TRACK: live trail recording, metrics, maps, and KML for the track.
 
 const STORAGE_KEY = "dalitrail:session";
-const MAX_SEGMENT_METERS = 150;
+
+// --- movement thresholds ---
+const MAX_SPEED_MPS = 12;                 // max plausible horizontal speed (~43.2 km/h). Tweak for your use case.
+const MIN_ALLOWED_SEGMENT_METERS = 25;    // small floor so very short gaps still have a sane cap
 const MAX_ACCURACY_METERS = 25;
 const MIN_DISPLACEMENT_METERS = 6;
+
+// --- vertical thresholds ---
+const MIN_ELEV_DELTA_METERS = 1.5;        // ignore tiny vertical wiggles
+const MAX_ALTITUDE_ACCURACY_METERS = 25;  // skip noisy altitude fixes
+const MAX_VERT_SPEED_MPS = 3;             // optional vertical sanity (~10.8 km/h climb/descent); set to Infinity to disable
 
 const isIosDevice = typeof navigator !== "undefined" && /iphone|ipad|ipod/i.test(navigator.userAgent || "");
 const isAndroidDevice = typeof navigator !== "undefined" && /android/i.test(navigator.userAgent || "");
@@ -170,8 +178,15 @@ export const startTracking = () => {
 
   watchId = navigator.geolocation.watchPosition(
     (pos) => {
-      const { latitude, longitude, accuracy, altitude } = pos.coords;
-      const point = { lat: latitude, lng: longitude, accuracy, timestamp: pos.timestamp, altitude: sanitizeAltitude(altitude) };
+      const { latitude, longitude, accuracy, altitude, altitudeAccuracy } = pos.coords;
+      const point = {
+        lat: latitude,
+        lng: longitude,
+        accuracy,
+        timestamp: pos.timestamp,
+        altitude: sanitizeAltitude(altitude),
+        altitudeAccuracy: Number.isFinite(altitudeAccuracy) ? altitudeAccuracy : null,
+      };
       lastPoint = point;
 
       if (Number.isFinite(point.accuracy) && point.accuracy > MAX_ACCURACY_METERS) {
@@ -187,22 +202,45 @@ export const startTracking = () => {
         return;
       }
 
+      // --- time-aware sanity checks ---
       const displacement = haversineDistance(lastAcceptedPoint, point);
+      const dtMs = (Number.isFinite(point.timestamp) && Number.isFinite(lastAcceptedPoint.timestamp))
+        ? (point.timestamp - lastAcceptedPoint.timestamp)
+        : 0;
+
+      // Guard against non-forward or ridiculous intervals (0 < dt <= 5 min)
+      const dtSec = Math.min(Math.max(dtMs / 1000, 0.001), 300);
+
+      // Horizontal cap based on elapsed time (with a small floor)
+      const allowedDistance = Math.max(MIN_ALLOWED_SEGMENT_METERS, MAX_SPEED_MPS * dtSec);
       if (displacement < MIN_DISPLACEMENT_METERS) {
-        console.log(`Ignored ${displacement.toFixed(1)}m (below threshold)`);
+        // too tiny to matter
+        // console.log(`Ignored ${displacement.toFixed(1)}m (below threshold)`);
         return;
       }
-      if (displacement > MAX_SEGMENT_METERS) {
-        console.log(`Discarded ${displacement.toFixed(1)}m (likely GPS jump)`);
+      if (displacement > allowedDistance) {
+        // likely GPS jump; discard
+        // console.log(`Discarded ${displacement.toFixed(1)}m over ${dtSec.toFixed(1)}s (> ${allowedDistance.toFixed(1)}m allowed)`);
         return;
       }
 
       totalDistance += displacement;
 
-      if (point.altitude !== null && lastAcceptedPoint.altitude !== null) {
-        const dz = point.altitude - lastAcceptedPoint.altitude;
-        if (dz > 0) elevationGain += dz;
-        else if (dz < 0) elevationLoss += Math.abs(dz);
+      // Elevation accumulation with accuracy + vertical speed sanity
+      if (Number.isFinite(point.altitude) && Number.isFinite(lastAcceptedPoint.altitude)) {
+        const altOK =
+          (!Number.isFinite(point.altitudeAccuracy) || point.altitudeAccuracy <= MAX_ALTITUDE_ACCURACY_METERS) &&
+          (!Number.isFinite(lastAcceptedPoint.altitudeAccuracy) || lastAcceptedPoint.altitudeAccuracy <= MAX_ALTITUDE_ACCURACY_METERS);
+
+        if (altOK) {
+          const dz = point.altitude - lastAcceptedPoint.altitude;
+          const absDz = Math.abs(dz);
+          const vertOk = absDz <= (MAX_VERT_SPEED_MPS * dtSec) + 0.01; // small epsilon
+          if (absDz >= MIN_ELEV_DELTA_METERS && vertOk) {
+            if (dz > 0) elevationGain += dz;
+            else elevationLoss += -dz;
+          }
+        }
       }
 
       lastAcceptedPoint = point;

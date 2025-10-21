@@ -969,3 +969,62 @@ searchViewBtn?.addEventListener("click", openSelectedSearchResults);
 searchSaveBtn?.addEventListener("click", saveSelectedSearchResults);
 searchShareBtn?.addEventListener("click", () => { void shareSelectedSearchResults(); });
 searchSketchBtn?.addEventListener("click", () => { void openSketchForSelectedResults(); });
+
+/* -----------------------------------------------------------
+ * NEW: Direct bridge for Sketch Map "Load Ref"
+ * Listens for `dalitrail:search-nearby` and replies with results
+ * without touching the Search UI or tracking state.
+ * detail: { lat, lng, radiusMeters?, limit?, types?, resolve }
+ * --------------------------------------------------------- */
+
+function mapTypesToFeatureCodes(types) {
+  if (!Array.isArray(types) || types.length === 0) return null;
+  const set = new Set();
+  for (const t of types) {
+    const key = String(t || "").toLowerCase();
+    // map common aliases to our CATEGORY_FEATURES buckets
+    if (key === "trail" || key === "trails") (CATEGORY_FEATURES.trails || []).forEach(c => set.add(c));
+    else if (key === "peak" || key === "peaks" || key === "mountain") (CATEGORY_FEATURES.peaks || []).forEach(c => set.add(c));
+    else if (key === "water" || key === "lake" || key === "river") (CATEGORY_FEATURES.water || []).forEach(c => set.add(c));
+    else if (key === "park" || key === "parks") (CATEGORY_FEATURES.parks || []).forEach(c => set.add(c));
+    else if (key === "place" || key === "town" || key === "city" || key === "settlement") (CATEGORY_FEATURES.towns || []).forEach(c => set.add(c));
+    else if (key === "all" || key === "*") return null; // request all -> null
+  }
+  return set.size ? Array.from(set) : null;
+}
+
+window.addEventListener("dalitrail:search-nearby", async (evt) => {
+  const detail = evt?.detail || {};
+  const resolve = typeof detail.resolve === "function" ? detail.resolve : null;
+  if (!resolve) return;
+
+  const lat = Number(detail.lat);
+  const lng = Number(detail.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    resolve([]);
+    return;
+  }
+
+  const radiusKm = Number.isFinite(detail.radiusMeters) ? detail.radiusMeters / 1000 : 5;
+  const limit = Number.isFinite(detail.limit) ? Math.min(50, Math.max(1, detail.limit)) : 10;
+  const featureCodes = mapTypesToFeatureCodes(detail.types) || null;
+
+  try {
+    const data = await fetchNearby({ lat, lng, radiusKm, limit, featureCodes });
+    // Normalize shape for sketch-map: [{lat,lng,name}]
+    const out = (data.features || []).slice(0, limit).map(f => ({
+      lat: Number(f.latitude),
+      lng: Number(f.longitude),
+      name: f.name || "Place",
+      // Optional passthroughs if you ever want them in the canvas:
+      feature_class: f.feature_class,
+      feature_code: f.feature_code,
+      distance_km: f.distance_km,
+      elevation: f.elevation,
+    }));
+    resolve(out);
+  } catch (err) {
+    console.warn("dalitrail:search-nearby failed:", err);
+    resolve([]);
+  }
+});

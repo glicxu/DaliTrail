@@ -21,6 +21,53 @@ export const parseIsoTime = (s) => {
   return Number.isFinite(t) ? t : null;
 };
 
+// utils.js — lightweight app logger (no deps on main.js)
+export function getPendingLogCount() { return _pendingLogs.length; }
+
+
+// In-memory buffer so logs emitted before main.js is ready aren't lost.
+const _pendingLogs = [];
+
+/**
+ * App-wide logging function. If main.js has registered a logger via setLogger()
+ * or exposed window.LogAppEvent, we call it immediately. Otherwise:
+ *  - we buffer the event
+ *  - we also emit a DOM event 'dalitrail:log' for any listener that wants it
+ */
+export function logAppEvent(event, data = {}) {
+  try {
+    if (typeof window !== "undefined" && typeof window.LogAppEvent === "function") {
+      window.LogAppEvent(event, data);
+      return;
+    }
+  } catch {}
+
+  // No logger yet — buffer the log and also broadcast a DOM event (best-effort)
+  _pendingLogs.push({ event, data, ts: Date.now() });
+  try {
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+      window.dispatchEvent(new CustomEvent("dalitrail:log", { detail: { event, data } }));
+    }
+  } catch {}
+}
+
+/**
+ * Called by main.js when its real logger is ready.
+ * This sets a global logger and flushes any buffered events.
+ */
+export function setLogger(fn) {
+  if (typeof fn !== "function") return;
+  try {
+    window.LogAppEvent = fn; // standardize the sink
+  } catch {}
+  // Flush buffered logs
+  while (_pendingLogs.length) {
+    const { event, data } = _pendingLogs.shift();
+    try { fn(event, data); } catch {}
+  }
+}
+
+
 // --------------------- Math / Geo -----------------------
 const toRad = (v) => (v * Math.PI) / 180;
 const toDeg = (v) => (v * 180) / Math.PI;

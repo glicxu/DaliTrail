@@ -1,13 +1,12 @@
 // /assets/js/sketch-map.js
 // Unified Sketch Map overlay for DaliTrail.
-// Consistent toolbar: [Pin/Unpin me] [Start/Pause Tracking] [3D] [Save] [Close]
+// Consistent toolbar: [Pin/Unpin me] [Start/Pause Tracking] [3D] [Load Ref] [Save] [Close]
 // Public API: openSketchMap(input)
 //   - input.points: array of {lat, lng, note?, timestamp?}
 //   - input.target: optional {lat, lng, note?}
 //   - input.anchor: optional {lat, lng} => computes anchorDistanceMeters on each point
 
-import { haversineMeters, distanceAndDirection } from "/assets/js/utils.js";
-import { openThreeOverlay } from "/assets/js/sketch-3d.js";
+import { haversineMeters, distanceAndDirection, logAppEvent } from "/assets/js/utils.js";
 
 // ---------------- Public API ----------------
 export function openSketchMap(input = {}) {
@@ -47,6 +46,7 @@ function createUnifiedOverlay(options) {
           <button class="btn btn-outline sketch-toggle-follow">${follow ? "Unpin me" : "Pin me"}</button>
           <button class="btn btn-outline sketch-startpause">Start Tracking</button>
           <button class="btn btn-outline sketch-3d">3D</button>
+          <button class="btn btn-outline sketch-load-ref">Load Ref</button>
           <button class="btn btn-outline sketch-save" disabled>Save</button>
           <button class="btn btn-outline sketch-close">Close</button>
         </div>
@@ -109,6 +109,7 @@ function createUnifiedOverlay(options) {
   const btnStartPause = overlay.querySelector(".sketch-startpause");
   const btnSave = overlay.querySelector(".sketch-save");
   const btn3D = overlay.querySelector(".sketch-3d");
+  const btnLoadRef = overlay.querySelector(".sketch-load-ref");
   const distanceEl = overlay.querySelector("#sketch-distance");
   const speedEl = overlay.querySelector("#sketch-speed");
   const headingEl = overlay.querySelector("#sketch-heading");
@@ -157,17 +158,96 @@ function createUnifiedOverlay(options) {
   });
 
   btnSave.addEventListener("click", doSave);
-
-  btn3D.addEventListener("click", () => {
-    // provide a read-only snapshot to 3D view
+  btnLoadRef.addEventListener("click", () => void loadReferenceNearby());
+  btn3D.addEventListener("click", async () => {
     const payload = {
       points: scene.points.slice(),
       track: track.slice(),
       me: me ? { ...me } : null,
       target: scene.target ? { ...scene.target } : null
     };
-    openThreeOverlay(payload);
+
+    try {
+      // Lazy import avoids load order issues / circular deps
+      const mod = await import("/assets/js/sketch-3d.js");
+      if (typeof mod.openThreeOverlay === "function") {
+        mod.openThreeOverlay(payload);
+        return;
+      }
+      throw new Error("openThreeOverlay() not exported");
+    } catch (err) {
+      console.error("3D overlay failed:", err);
+      alert("3D view is unavailable in this build.");
+    }
   });
+
+  async function loadReferenceNearby() {
+    // pick a center: current fix, last track point, or scene anchor/target as fallback
+    const center =
+      (me && Number.isFinite(me.lat) && Number.isFinite(me.lng)) ? me :
+      (track.length ? track[track.length - 1] : null) ||
+      scene.anchor || scene.target;
+
+    if (!center || !Number.isFinite(center.lat) || !Number.isFinite(center.lng)) {
+      alert("Need a recent position before loading reference points.");
+      return;
+    }
+
+    // Ask the app's search layer to provide nearby POIs (5–10). This won’t affect tracking.
+    // Contract: a listener in your search module should catch this event and call resolve(results).
+    // Expected result item shape: { lat, lng, name? | note? }
+    const results = await new Promise((resolve) => {
+      try {
+        window.dispatchEvent(
+          new CustomEvent("dalitrail:search-nearby", {
+            detail: {
+              lat: center.lat,
+              lng: center.lng,
+              radiusMeters: 5000,
+              limit: 10,
+              resolve, // callback to return results
+              types: ["place", "trail", "peak", "poi"],
+            },
+          })
+        );
+      } catch (e) {
+        resolve([]);
+      }
+    });
+
+    if (!Array.isArray(results) || results.length === 0) {
+      readout.textContent = "No reference points found nearby.";
+      return;
+    }
+
+    // Keep tracking untouched; we only augment scene.points
+    const before = scene.points.length;
+    const newPts = results
+      .slice(0, 10)
+      .map((r, i) => ({
+        lat: Number(r.lat),
+        lng: Number(r.lng),
+        note: (r.name || r.title || r.note || `Ref ${i + 1}`).toString(),
+        timestamp: Date.now(),
+      }))
+      .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+
+    // If you have an anchor configured, compute distances for these too
+    if (scene.anchor) {
+      newPts.forEach(p => {
+        p.anchorDistanceMeters = haversineMeters(
+          { lat: p.lat, lng: p.lng },
+          { lat: scene.anchor.lat, lng: scene.anchor.lng }
+        );
+      });
+    }
+
+    scene.points.push(...newPts);
+    draw(false); // do not force-fit; respect current follow/pin
+    updateReadout();
+
+    try { logAppEvent?.(`Loaded ${newPts.length} reference points (total ${scene.points.length - before} new).`); } catch {}
+  }
 
   // Resize handling
   const resizeObserver = window.ResizeObserver
@@ -666,9 +746,12 @@ function createUnifiedOverlay(options) {
   // -------- UI helpers
   function updateToolbarState() {
     btnStartPause.textContent = trackingActive ? "Pause Tracking" : "Start Tracking";
-    const canSave = !!(recordTrail && track.length >= 2 && !saveInProgress);
+
+    // Enable Save anytime we are actively tracking (still honors recordTrail + in-progress guard).
+    const canSave = !!(recordTrail && trackingActive && !saveInProgress);
     btnSave.disabled = !canSave;
     btnSave.textContent = saveInProgress ? "Saving..." : "Save";
+
     updateFollowButton();
   }
 
