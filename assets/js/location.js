@@ -508,6 +508,21 @@ async function onClickRecordTrack() {
   if (!navigator.geolocation) { alert("Geolocation is not supported on this device."); return; }
   if (!isSecure) { alert("Enable HTTPS (or use localhost) to access your location."); return; }
 
+  let initialAnchor = null;
+  try {
+    const { fused } = await collectFusedLocation({ maxSamples: 5, windowMs: 3500 });
+    if (fused && Number.isFinite(fused.lat) && Number.isFinite(fused.lng)) {
+      initialAnchor = {
+        lat: fused.lat,
+        lng: fused.lng,
+        accuracy: fused.accuracy,
+        timestamp: fused.timestamp || Date.now(),
+      };
+    }
+  } catch (anchorError) {
+    console.warn("Track anchor collection failed:", anchorError);
+  }
+
   try {
     const mod = await import("/assets/js/sketch-map.js");
     const open =
@@ -523,6 +538,7 @@ async function onClickRecordTrack() {
       recordTrail: true,
       liveTrack: true,
       follow: true,
+      initialAnchor,
       onSaveTrail: (trail) => saveRecordedTrack(trail),
     });
   } catch (error) {
@@ -1443,6 +1459,7 @@ if (document.readyState === "loading") {
 } else {
   safeInit();
 }
+
 
 
 

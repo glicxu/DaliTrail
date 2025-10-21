@@ -29,7 +29,7 @@ const REQUIRED_ANCHOR_SAMPLES = 3;
 const ANCHOR_MAX_ACCURACY_METERS = 45;
 const ANCHOR_TIMEOUT_MS = 3000;
 
-function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTrail = false, onSaveTrail = null }) {
+function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTrail = false, onSaveTrail = null, initialAnchor = null }) {
   const hasTargetPoint = hasTarget({ target });
   if (!recordTrail && !hasTargetPoint) {
     throw new Error("openNavigateOverlay requires a target with lat/lng.");
@@ -147,6 +147,31 @@ function openNavigateOverlay({ target, liveTrack = true, follow = true, recordTr
   let cumulativeDistance = 0;
   const saveCallback = typeof onSaveTrail === "function" ? onSaveTrail : null;
   let saveInProgress = false;
+
+  if (
+    recordTrail &&
+    initialAnchor &&
+    Number.isFinite(Number(initialAnchor.lat)) &&
+    Number.isFinite(Number(initialAnchor.lng))
+  ) {
+    const lat = Number(initialAnchor.lat);
+    const lng = Number(initialAnchor.lng);
+    const ts = Number(initialAnchor.timestamp) || Date.now();
+    const acc = Number(initialAnchor.accuracy);
+    const normalizedAccuracy = Number.isFinite(acc) ? acc : null;
+    anchorPoint = { lat, lng, accuracy: normalizedAccuracy, timestamp: ts };
+    const anchorRecord = {
+      lat,
+      lng,
+      accuracy: normalizedAccuracy,
+      timestamp: ts,
+    };
+    track.push(anchorRecord);
+    cumulativeDistance = 0;
+    trackStartTime = ts;
+    lastFixTimestamp = ts;
+    me = { lat, lng, accuracy: normalizedAccuracy, timestamp: ts };
+  }
 
   const formatDistance = (meters) => {
     if (!Number.isFinite(meters) || meters <= 0) return "0 m";
