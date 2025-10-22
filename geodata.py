@@ -5,12 +5,16 @@ from __future__ import annotations
 import json
 import math
 import os
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, List, Optional
 
 import sqlite3
 from datetime import datetime, timezone
+
+# NEW: Add logger
+LOGGER = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).parent.resolve()
 
@@ -408,6 +412,71 @@ def scan_regions(
     return out
 
 
+def _fetch_region_names(db_path: Path, regions: list[dict[str, Any]]) -> None:
+    """
+    Enrich a list of region dicts with 'country_name' and 'admin1_name'
+    by looking them up in the master DB's dedicated 'countries' and 'admin1_codes' tables.
+    This is done in a batch to avoid N+1 queries.
+    If these tables are not found, it will raise an sqlite3.OperationalError,
+    indicating that the master database schema is not as expected.
+    """
+    LOGGER.info("Fetching region names from master DB: %s", db_path)
+    if not regions:
+        return
+
+    country_codes = {r["country"] for r in regions if r.get("country")}
+    admin1_tuples = {(r["country"], r.get("admin1")) for r in regions if r.get("country") and r.get("admin1")}
+    
+    country_name_map = {}
+    LOGGER.info("Looking up names for %d unique country codes.", len(country_codes))
+    admin1_name_map = {}
+
+    with _connect(db_path) as con:
+        # Fetch country names from the 'countries' table
+        if country_codes:
+            sql = "SELECT iso_code, name FROM countries WHERE iso_code IN ({})".format(
+                ",".join("?" for _ in country_codes)
+            )
+            try:
+                for row in con.execute(sql, list(country_codes)):
+                    country_name_map[row["iso_code"]] = row["name"]
+                LOGGER.info("Found %d country names.", len(country_name_map))
+            except sqlite3.OperationalError as e:
+                raise RuntimeError(
+                    f"Master database is missing the 'countries' table or 'iso_code'/'name' columns. "
+                    f"Ensure your master DB ingestion script creates this table. Original error: {e}"
+                ) from e
+
+        # Fetch admin1 names from the 'admin1_codes' table
+        if admin1_tuples:
+            # Use a temporary table for efficient joining on composite keys
+            try:
+                con.execute("CREATE TEMP TABLE admin1_keys (country_code TEXT, code TEXT, PRIMARY KEY (country_code, code))")
+                LOGGER.info("Looking up names for %d unique admin1 regions.", len(admin1_tuples))
+                con.executemany("INSERT OR IGNORE INTO admin1_keys (country_code, code) VALUES (?, ?)", list(admin1_tuples))
+                sql = """
+                    SELECT a.country_code, a.admin1_code, a.name FROM admin1_codes a
+                    JOIN admin1_keys k ON a.country_code = k.country_code AND a.admin1_code = k.code
+                """
+                for row in con.execute(sql):
+                    admin1_name_map[(row["country_code"], row["admin1_code"])] = row["name"]
+                LOGGER.info("Found %d admin1 names.", len(admin1_name_map))
+            except sqlite3.OperationalError as e:
+                raise RuntimeError(
+                    f"Master database is missing the 'admin1_codes' table or expected columns. "
+                    f"Ensure your master DB ingestion script creates this table. Original error: {e}"
+                ) from e
+
+    num_enriched_country = 0
+    num_enriched_admin1 = 0
+    for r in regions:
+        # Use .get() with a default of None to avoid KeyError if a name isn't found
+        r["country_name"] = country_name_map.get(r.get("country"))
+        r["admin1_name"] = admin1_name_map.get((r.get("country"), r.get("admin1")))
+        if r["country_name"]: num_enriched_country += 1
+        if r["admin1_name"]: num_enriched_admin1 += 1
+    LOGGER.info("Enriched %d regions with country names and %d with admin1 names.", num_enriched_country, num_enriched_admin1)
+
 # --- NOTE ---
 # The following functions (_connect, resolve_master_dataset_path, build_filter_label)
 # are assumed to be defined elsewhere in your module.
@@ -682,6 +751,10 @@ def generate_dynamic_catalog(
         master_db=master_db,
     )
 
+    # NEW: Fetch full names for countries and admin1 regions
+    db_path = master_db or resolve_master_dataset_path()
+    _fetch_region_names(db_path, regions)
+
     # ---- sort by country/admin1/admin2/label (case-insensitive) ----
     def _norm(v: Any) -> str:
         return str(v or "").casefold()
@@ -729,15 +802,28 @@ def generate_dynamic_catalog(
         if r.get("admin2"):  qs.append(f"admin2={r['admin2']}")
         query = "&".join(qs)
 
-        datasets.append({
+        # Build a more descriptive label, e.g., "United States - Washington"
+        label_parts = [r.get("country_name") or r.get("country"), r.get("admin1_name") or r.get("admin1")]
+        if r.get("admin2"): label_parts.append(r.get("admin2"))
+        label = " - ".join(filter(None, label_parts))
+
+        entry = {
             "id": id_str,
-            "label": r.get("label") or id_str_raw,
+            "label": label,
             "description": f"~{r.get('n', 0)} features",
             "source": "generated",
             # Use the clean builder endpoint you added in FastAPI:
             "url": f"/api/geonames/lite?{query}",
             "file_name": f"geonames-lite-{id_str_raw}.db",
-        })
+            "country": r.get("country"),
+            "admin1": r.get("admin1"),
+            "country_name": r.get("country_name"),
+            "admin1_name": r.get("admin1_name"),
+        }
+        if r.get("admin2"):
+            entry["admin2"] = r.get("admin2")
+
+        datasets.append(entry)
 
     # Persist to configs/geonames-datasets.json
     DATASET_CATALOG_PATH.parent.mkdir(parents=True, exist_ok=True)

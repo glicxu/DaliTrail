@@ -62,6 +62,8 @@ const geonamesFileInput = document.getElementById("geonames-file-input");
 const geonamesDetails = document.getElementById("geonames-section");
 const geonamesDownloadPanel = document.getElementById("geonames-download-panel");
 const geonamesDownloadSelect = document.getElementById("geonames-download-select");
+const geonamesCountrySelect = document.getElementById("geonames-country-select");
+const geonamesRegionSelect = document.getElementById("geonames-region-select");
 const geonamesDownloadStatus = document.getElementById("geonames-download-status");
 const geonamesDownloadConfirm = document.getElementById("geonames-download-confirm");
 const backupDownloadBtn = document.getElementById("backup-download-btn");
@@ -789,10 +791,13 @@ const ensureGeonamesDatasetList = async () => {
   }
 };
 
-const populateGeonamesDatasetOptions = () => {
+const populateGeonamesDatasetOptions = (filterCountry = "", filterRegion = "") => {
   if (!geonamesDownloadSelect) return;
   const previousValue = geonamesDownloadSelect.value;
   geonamesDownloadSelect.innerHTML = "";
+
+  const filteredDatasets = geonamesDatasets.filter(d =>
+    (!filterCountry || d.country === filterCountry) && (!filterRegion || d.admin1 === filterRegion));
 
   if (!geonamesDatasets.length) {
     const option = document.createElement("option");
@@ -805,7 +810,7 @@ const populateGeonamesDatasetOptions = () => {
     return;
   }
 
-  geonamesDatasets.forEach((dataset, index) => {
+  filteredDatasets.forEach((dataset, index) => {
     const option = document.createElement("option");
     option.value = dataset.id;
     const approx = dataset.approx_size || dataset.approxSize || "";
@@ -818,6 +823,57 @@ const populateGeonamesDatasetOptions = () => {
   });
 
   geonamesDatasetOptionsLoaded = true;
+  // After filtering, if the previously selected item is gone, update the description.
+  if (previousValue !== geonamesDownloadSelect.value) {
+    const firstDataset = getSelectedGeonamesDataset();
+    if (firstDataset?.description) setGeonamesDownloadStatus(firstDataset.description);
+  }
+};
+
+const populateGeonamesFilterDropdowns = () => {
+  if (!geonamesCountrySelect || !geonamesRegionSelect) return;
+
+  const countries = [...new Map(
+    geonamesDatasets
+      .filter(d => d.country && d.country_name)
+      .map(d => [d.country, { code: d.country, name: d.country_name }])
+  ).values()].sort((a, b) => a.name.localeCompare(b.name));
+
+  const selectedCountry = geonamesCountrySelect.value;
+
+  geonamesCountrySelect.innerHTML = `<option value="">All Countries</option>`;
+  countries.forEach(country => {
+    const option = document.createElement("option");
+    option.value = country.code;
+    option.textContent = country.name;
+    if (country.code === selectedCountry) option.selected = true;
+    geonamesCountrySelect.appendChild(option);
+  });
+
+  const regions = [...new Map(
+      geonamesDatasets
+        .filter(d => d.country === selectedCountry && d.admin1 && d.admin1_name)
+        .map(d => [d.admin1, { code: d.admin1, name: d.admin1_name }])
+    ).values()].sort((a, b) => a.name.localeCompare(b.name));
+
+  const selectedRegion = geonamesRegionSelect.value;
+  geonamesRegionSelect.innerHTML = `<option value="">All Regions</option>`;
+  regions.forEach(region => {
+    const option = document.createElement("option");
+    option.value = region.code;
+    // The label from geodata.py might already be "Country - Region", so just use the region name.
+    option.textContent = region.name;
+    if (region.code === selectedRegion) option.selected = true;
+    geonamesRegionSelect.appendChild(option);
+  });
+
+  geonamesRegionSelect.disabled = !selectedCountry || regions.length === 0;
+};
+
+const handleGeonamesFilterChange = () => {
+  const country = geonamesCountrySelect?.value || "";
+  const region = geonamesRegionSelect?.value || "";
+  populateGeonamesDatasetOptions(country, region);
 };
 
 const getSelectedGeonamesDataset = () => {
@@ -846,7 +902,8 @@ const openGeonamesDownloadPanel = (message) => {
 
   ensureGeonamesDatasetList()
     .then(() => {
-      populateGeonamesDatasetOptions();
+      populateGeonamesFilterDropdowns();
+      handleGeonamesFilterChange();
       const dataset = getSelectedGeonamesDataset();
       if (dataset?.description) setGeonamesDownloadStatus(dataset.description);
     })
@@ -881,6 +938,18 @@ geonamesDownloadBtn?.addEventListener("click", () => {
   openGeonamesDownloadPanel();
   logAppEvent("Opened GeoNames download panel.");
 });
+
+geonamesCountrySelect?.addEventListener("change", () => {
+  // Reset region when country changes
+  if (geonamesRegionSelect) geonamesRegionSelect.value = "";
+  populateGeonamesFilterDropdowns();
+  handleGeonamesFilterChange();
+});
+
+geonamesRegionSelect?.addEventListener("change", () => {
+  handleGeonamesFilterChange();
+});
+
 
 geonamesDownloadSelect?.addEventListener("change", () => {
   const dataset = getSelectedGeonamesDataset();

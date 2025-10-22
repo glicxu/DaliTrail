@@ -125,6 +125,8 @@ class GeoNamesDatasetModel(BaseModel):
     file_name: str | None = None
     source: str | None = None
     approx_size: str | None = None
+    country_name: str | None = None
+    admin1_name: str | None = None
     size_bytes: int | None = None
     available: bool | None = None
     error: str | None = None
