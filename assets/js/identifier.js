@@ -8,14 +8,13 @@ const statusText = document.getElementById("identify-status");
 const resultsList = document.getElementById("identify-results-list");
 const saveIdentificationBtn = document.getElementById("save-identification-btn");
 
-const MODEL_PATH = "/assets/models/plant_classifier/plants_V1.tflite"; // Canonical path
-const WASM_PATH = "/assets/js/vendor/vision_wasm_internal.wasm";
+const MODEL_PATH = "/assets/models/plant_classifier/plants_V1.tflite";
+const WASM_PATH = "/vendor/vision_wasm_internal.wasm";
 
 let classifier = null;
 let animationFrameId = null;
 let isViewActive = false;
 let latestTopResult = null;
-
 const logIdentifierEvent = (message, data = {}) => {
   window.dispatchEvent(
     new CustomEvent("dalitrail:log", { detail: { event: "identifier", data: { message, ...data } } })
@@ -32,6 +31,34 @@ const setStatus = (message, { isError = false } = {}) => {
   statusText.textContent = message;
   statusText.classList.toggle("error", isError);
   logIdentifierEvent(message);
+};
+
+/**
+ * Waits for the MediaPipe Vision Task library to be loaded.
+ * The script in index.html loads the library and attaches it to `window.vision`.
+ * This function polls until that object is available.
+ * @returns {Promise<void>} A promise that resolves when `window.vision` is available.
+ */
+const waitForVisionTasks = () => {
+  return new Promise((resolve, reject) => {
+    if (window?.vision) {
+      return resolve();
+    }
+    // Poll every 100ms for the `vision` global
+    const interval = setInterval(() => {
+      if (window?.vision) {
+        clearInterval(interval);
+        clearTimeout(timeout);
+        resolve();
+      }
+    }, 100);
+
+    // Fail after 15 seconds if the library doesn't load
+    const timeout = setTimeout(() => {
+      clearInterval(interval);
+      reject(new Error("MediaPipe Vision library failed to load in time."));
+    }, 15000);
+  });
 };
 
 /**
@@ -94,49 +121,32 @@ const classificationLoop = async () => {
 };
 
 /**
- * Waits for the MediaPipe Vision Task library to be loaded.
- * @returns {Promise<void>} A promise that resolves when `window.tflite` is available.
- */
-const waitForVisionTasks = () => {
-  return new Promise((resolve, reject) => {
-    // The new library attaches itself to `window.vision`.
-    if (window?.vision) {
-      return resolve();
-    }
-    // Poll every 100ms for the `vision` global
-    const interval = setInterval(() => {
-      if (window?.vision) {
-        clearInterval(interval);
-        clearTimeout(timeout);
-        resolve();
-      }
-    }, 100);
-
-    // Fail after 15 seconds if the library doesn't load
-    const timeout = setTimeout(() => {
-      clearInterval(interval);
-      reject(new Error("MediaPipe Vision library failed to load in time."));
-    }, 15000);
-  });
-};
-
-/**
  * Initializes the MediaPipe Tasks Vision model classifier.
  */
 const initializeClassifier = async () => {
   if (classifier) return;
 
   try {
-    setStatus("Waiting for Vision library...");
+    setStatus("Creating vision task fileset...");
     await waitForVisionTasks();
+    const { FilesetResolver, ImageClassifier } = window.vision;
 
-    setStatus("Loading classification model...");
-    const classifierTask = await window.vision.ImageClassifier.createFromOptions(
-      { baseOptions: { modelAssetPath: MODEL_PATH, wasmAssetPath: WASM_PATH } },
-      { runningMode: "VIDEO", maxResults: 5 }
+    // Use FilesetResolver to find the Wasm assets.
+    const vision = await FilesetResolver.forVisionTasks(
+      // path to the wasm files
+      "/assets/js/vendor/"
     );
-    classifier = classifierTask;
+
+    // Create the classifier with the new API
+    classifier = await ImageClassifier.createFromOptions(
+      vision, {
+      baseOptions: { modelAssetPath: MODEL_PATH },
+      runningMode: "VIDEO",
+      maxResults: 5,
+    }
+    );
     setStatus("Model loaded. Point camera at a plant.");
+    logIdentifierEvent("Classifier initialized successfully.");
     logIdentifierEvent("Classifier initialized successfully from " + MODEL_PATH);
     // Start the loop once the model is ready
     classificationLoop();

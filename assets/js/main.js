@@ -1314,6 +1314,100 @@ navigator.serviceWorker?.addEventListener("controllerchange", () => {
   }
 });
 
+function safeInit() {
+  console.log("[main.js] Starting initialization...");
+
+  // Back button and other top-level controls
+  backBtn?.addEventListener("click", () => {
+    const current = appRoot?.dataset.view;
+    if (current === "location-history" || current === "tracks" || current === "search" || current === "identify") showView("home");
+    else showView("home");
+  });
+
+  toggleLogBtn?.addEventListener("click", () => {
+    toggleLogVisibility();
+  });
+
+
+  // ---------- Event Listeners ----------
+  openLocationViewBtn?.addEventListener("click", () => {
+    showView("location");
+    logAppEvent("Opened Location view.");
+  });
+
+  openIdentifyViewBtn?.addEventListener("click", () => {
+    showView("identify");
+    logAppEvent("Opened Identify view.");
+  });
+
+  openEventViewBtn?.addEventListener("click", () => {
+    showView("events");
+    logAppEvent("Opened Events view.");
+  });
+
+  openNotesViewBtn?.addEventListener("click", () => {
+    showView("notes");
+    logAppEvent("Opened Notes view.");
+  });
+
+  openAboutViewBtn?.addEventListener("click", () => {
+    showView("about");
+    logAppEvent("Opened About view.");
+  });
+
+  openLocationHistoryBtn?.addEventListener("click", () => {
+    if (openLocationHistoryBtn.disabled) return;
+    showView("location-history");
+    logAppEvent("Viewing saved locations.");
+  });
+
+  openTrackHistoryBtn?.addEventListener("click", () => {
+    if (openTrackHistoryBtn.disabled) return;
+    showView("tracks");
+    logAppEvent("Viewing saved tracks.");
+  });
+
+  historyViewBtn?.addEventListener("click", () => {
+    if (historyViewBtn.disabled) return;
+    openSelectedLocations();
+    logAppEvent("Opened selected locations on map.");
+  });
+
+  historyShareBtn?.addEventListener("click", async () => {
+    if (historyShareBtn.disabled) return;
+    try {
+      await shareSelectedLocations();
+      logAppEvent("Shared selected locations.");
+    } catch (error) {
+      logAppEvent(`Sharing locations failed: ${error?.message || error}`);
+    }
+  });
+
+  historyDeleteBtn?.addEventListener("click", () => {
+    if (historyDeleteBtn.disabled) return;
+    deleteSelectedLocations();
+    logAppEvent("Deleted selected locations.");
+  });
+
+  // ---------- Init ----------
+  updateInstallHint();
+  updateMetrics();
+  initIdentifier(); // Initialize the identifier module first
+  restoreTrailState();
+  loadSavedLocations();
+  renderLatestLocation();
+  renderLocationHistory();
+  showView(loadInitialView());
+  refreshGeonamesStatus();
+
+  console.log("[main.js] Initialization complete.");
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", safeInit, { once: true });
+} else {
+  safeInit();
+}
 
 // ---------- Helpers already present elsewhere in your file ----------
 // (Assumes promptInstall, clearInstallPromptWait, updateInstallHint, setStatus,

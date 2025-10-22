@@ -37,6 +37,12 @@ app.mount(
     name="assets",
 )
 
+app.mount(
+    "/vendor",
+    StaticFiles(directory=BASE_DIR / "assets" / "js" / "vendor", html=False),
+    name="vendor",
+)
+
 
 @app.get("/", response_class=FileResponse)
 async def read_index():
