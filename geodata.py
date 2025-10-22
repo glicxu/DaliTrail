@@ -67,8 +67,6 @@ def resolve_dataset_path() -> Path:
 # ---------------------------------------------------------------------------
 def resolve_master_dataset_path() -> Path:
     """Resolve the *master* GeoNames database (all countries)."""
-
-    return "C:\src\workspaces\DaliTrailData\data\geonames-all_countries_latest.db"
     env_value = os.getenv("DALITRAIL_GEONAMES_MASTER_DB")
     if env_value:
         candidate = Path(env_value).expanduser().resolve()
