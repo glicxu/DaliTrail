@@ -9,6 +9,7 @@ const resultsList = document.getElementById("identify-results-list");
 const saveIdentificationBtn = document.getElementById("save-identification-btn");
 
 const MODEL_PATH = "/assets/models/plant_classifier/plants_V1.tflite"; // Canonical path
+const WASM_PATH = "/assets/js/vendor/vision_wasm_internal.wasm";
 
 let classifier = null;
 let animationFrameId = null;
@@ -68,11 +69,22 @@ const renderResults = (results) => {
  * The main classification loop that runs on each animation frame.
  */
 const classificationLoop = async () => {
-  if (!isViewActive || !classifier) return;
+  if (!isViewActive || !classifier || !videoElement.srcObject) return;
 
   try {
-    const results = await classifier.classify(videoElement);
-    renderResults(results);
+    // The new API uses a callback for streaming results.
+    // We will get the latest result from the classifier.
+    const startTimeMs = performance.now();
+    const classificationResult = classifier.classifyForVideo(videoElement, startTimeMs);
+
+    if (classificationResult && classificationResult.classifications.length > 0) {
+      // The new API returns a different structure.
+      const apiResults = classificationResult.classifications[0].categories.map(c => ({
+        className: c.displayName,
+        score: c.score
+      }));
+      renderResults(apiResults);
+    }
   } catch (error) {
     console.error("Classification error:", error);
     // Don't spam the UI with errors, just log them.
@@ -82,44 +94,49 @@ const classificationLoop = async () => {
 };
 
 /**
- * Waits for the TFLite Task library to be loaded and attached to the window.
+ * Waits for the MediaPipe Vision Task library to be loaded.
  * @returns {Promise<void>} A promise that resolves when `window.tflite` is available.
  */
-const waitForTFLite = () => {
+const waitForVisionTasks = () => {
   return new Promise((resolve, reject) => {
-    if (window.tflite) {
+    // The new library attaches itself to `window.vision`.
+    if (window?.vision) {
       return resolve();
     }
-    // Poll every 100ms for the tflite global
+    // Poll every 100ms for the `vision` global
     const interval = setInterval(() => {
-      if (window.tflite) {
+      if (window?.vision) {
         clearInterval(interval);
         clearTimeout(timeout);
         resolve();
       }
     }, 100);
 
-    // Fail after 10 seconds if the library doesn't load
+    // Fail after 15 seconds if the library doesn't load
     const timeout = setTimeout(() => {
       clearInterval(interval);
-      reject(new Error("TFLite library failed to load in time. Check network or script tags."));
-    }, 10000);
+      reject(new Error("MediaPipe Vision library failed to load in time."));
+    }, 15000);
   });
 };
 
 /**
- * Initializes the TFLite model classifier.
+ * Initializes the MediaPipe Tasks Vision model classifier.
  */
 const initializeClassifier = async () => {
   if (classifier) return;
 
   try {
-    setStatus("Waiting for TFLite library...");
-    await waitForTFLite();
+    setStatus("Waiting for Vision library...");
+    await waitForVisionTasks();
 
     setStatus("Loading classification model...");
-    // Use the high-level Tasks API for simplicity
-    classifier = await tflite.ImageClassifier.create(MODEL_PATH);
+    const classifierTask = await window.vision.ImageClassifier.createFromOptions(
+      { baseOptions: { modelAssetPath: MODEL_PATH, wasmAssetPath: WASM_PATH } },
+      { runningMode: "VIDEO", maxResults: 5 }
+    );
+    classifier = vision;
+    classifier = classifierTask;
     setStatus("Model loaded. Point camera at a plant.");
     logIdentifierEvent("Classifier initialized successfully from " + MODEL_PATH);
     // Start the loop once the model is ready

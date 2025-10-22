@@ -34,6 +34,8 @@ const PRECACHE_ASSETS = [
   "/assets/js/search.js",
   "/assets/js/vendor/sql-wasm.js",
   "/assets/js/vendor/sql-wasm.wasm",
+  "/assets/js/vendor/vision_wasm_internal.wasm",
+  "/assets/js/vendor/tasks.min.js",
 
   // NEW: Precache the plant identification model for offline use
   "/assets/models/plant_classifier/plants_V1.tflite", // Canonical path
