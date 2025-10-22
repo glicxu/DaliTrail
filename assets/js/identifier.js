@@ -49,6 +49,12 @@ const renderResults = (results) => {
     return;
   }
 
+  // Prevent flickering by only re-rendering if the top result has changed.
+  if (latestTopResult && results[0].className === latestTopResult.className) {
+    return;
+  }
+
+  resultsList.innerHTML = "";
   resultsList.hidden = false;
   latestTopResult = results[0];
   if (saveIdentificationBtn) saveIdentificationBtn.disabled = false;
