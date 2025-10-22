@@ -11,6 +11,7 @@ const resultsList = document.getElementById("identify-results-list");
 const saveIdentificationBtn = document.getElementById("save-identification-btn");
 
 const MODEL_PATH = "/assets/models/plants_V1.tflite";
+const CONFIDENCE_THRESHOLD = 0.50; // Only show results with at least 50% confidence
 
 let classifier = null;
 let animationFrameId = null;
@@ -45,7 +46,13 @@ const renderResults = (results) => {
   if (!results || results.length === 0) {
     latestTopResult = null;
     resultsList.hidden = true;
-    if (saveIdentificationBtn) saveIdentificationBtn.disabled = true;
+    return;
+  }
+
+  // Do not render results if confidence is too low
+  if (results[0].score < CONFIDENCE_THRESHOLD) {
+    latestTopResult = null;
+    resultsList.hidden = true;
     return;
   }
 
@@ -57,7 +64,6 @@ const renderResults = (results) => {
   resultsList.innerHTML = "";
   resultsList.hidden = false;
   latestTopResult = results[0];
-  if (saveIdentificationBtn) saveIdentificationBtn.disabled = false;
   const fragment = document.createDocumentFragment();
   results.slice(0, 3).forEach((result) => {
     const li = document.createElement("li");
