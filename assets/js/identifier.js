@@ -50,9 +50,7 @@ const renderResults = (results) => {
   // Prevent flickering. Only update if the new top result is different, or if
   // it's the same but with a higher confidence score.
   const newTopResult = results[0];
-  if (latestTopResult &&
-      (newTopResult.className === latestTopResult.className && newTopResult.score <= (latestTopResult.score +5) ||
-       newTopResult.className === 'None')) {
+  if (latestTopResult && newTopResult.score <= (latestTopResult.score +5)) {
     return;
   }
 
