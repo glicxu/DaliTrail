@@ -51,7 +51,7 @@ const renderResults = (results) => {
   // it's the same but with a higher confidence score.
   const newTopResult = results[0];
   if (latestTopResult &&
-      (newTopResult.className === latestTopResult.className && newTopResult.score <= latestTopResult.score ||
+      (newTopResult.className === latestTopResult.className && newTopResult.score <= (latestTopResult.score +5) ||
        newTopResult.className === 'None')) {
     return;
   }
