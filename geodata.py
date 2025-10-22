@@ -442,6 +442,7 @@ def build_lite_dataset(
     Returns the file size in bytes.
     """
     src_path = master_db or resolve_master_dataset_path()
+    print(f"Master DB Path (src_path): {src_path}")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if out_path.exists():
         out_path.unlink()
