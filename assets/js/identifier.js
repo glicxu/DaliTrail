@@ -135,7 +135,6 @@ const initializeClassifier = async () => {
       { baseOptions: { modelAssetPath: MODEL_PATH, wasmAssetPath: WASM_PATH } },
       { runningMode: "VIDEO", maxResults: 5 }
     );
-    classifier = vision;
     classifier = classifierTask;
     setStatus("Model loaded. Point camera at a plant.");
     logIdentifierEvent("Classifier initialized successfully from " + MODEL_PATH);
