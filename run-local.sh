@@ -11,7 +11,7 @@ APP="${APP:-main.py}"
 PY="${PY:-python}"
 
 # --- ADDED ENVIRONMENT VARIABLE SETTING ---
-export DALITRAIL_GEONAMES_DB="/home/dali-op/dali/data/geonamesall_countryies_lastest.db"
+export DALITRAIL_GEONAMES_DB="/home/dali-op/dali/data/geonames-all_countries_latest.db"
 # ------------------------------------------
 
 cd "$SCRIPT_DIR"
