@@ -10,6 +10,10 @@ PORT="${PORT:-9000}"
 APP="${APP:-main.py}"
 PY="${PY:-python}"
 
+# --- ADDED ENVIRONMENT VARIABLE SETTING ---
+export DALITRAIL_GEONAMES_DB="/home/dali-op/dali/data/geonamesall_countryies_lastest.db"
+# ------------------------------------------
+
 cd "$SCRIPT_DIR"
 
 # Activate venv if present
