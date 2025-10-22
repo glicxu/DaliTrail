@@ -182,7 +182,7 @@ async def download_default_dataset():
 
 
 # ---- New: build & stream a lite dataset for a region / feature set ----
-@app.get("/api/geonames/build-lite", response_class=FileResponse)
+@app.get("/api/geonames/lite", response_class=FileResponse)
 async def build_geonames_lite(
     background_tasks: BackgroundTasks,
     country: str = Query(..., min_length=2, max_length=3, description="ISO country code, e.g. US"),
@@ -198,9 +198,9 @@ async def build_geonames_lite(
     Build and stream a lite GeoNames SQLite DB filtered by country/admin codes.
 
     Examples:
-      /api/geonames/build-lite?country=US&admin1=WA
-      /api/geonames/build-lite?country=US&admin1=WA&admin2=King
-      /api/geonames/build-lite?country=US&feature_codes=H.LK,T.TRL
+      /api/geonames/lite?country=US&admin1=WA
+      /api/geonames/lite?country=US&admin1=WA&admin2=King
+      /api/geonames/lite?country=US&feature_codes=H.LK,T.TRL
     """
     ctry = country.strip().upper()
     a1 = admin1.strip().upper() if admin1 else None
