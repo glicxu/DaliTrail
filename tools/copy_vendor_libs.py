@@ -18,13 +18,18 @@ VENDOR_DIR = BASE_DIR / "assets" / "js" / "vendor"
 LIBS_TO_COPY = [
     {
         "name": "TensorFlow.js TFLite Vision",
-        "source": NODE_MODULES_DIR / "@mediapipe" / "tasks-vision" / "wasm" / "vision_wasm_internal.js",
-        "dest": VENDOR_DIR / "tasks.min.js",  # Keep the name the app expects
+        "source": NODE_MODULES_DIR / "@mediapipe" / "tasks-vision" / "vision_bundle.mjs",
+        "dest": VENDOR_DIR / "tasks.min.js",
     },
     {
         "name": "MediaPipe Vision WASM",
         "source": NODE_MODULES_DIR / "@mediapipe" / "tasks-vision" / "wasm" / "vision_wasm_internal.wasm",
         "dest": VENDOR_DIR / "vision_wasm_internal.wasm",
+    },
+    {
+        "name": "MediaPipe Vision WASM JS",
+        "source": NODE_MODULES_DIR / "@mediapipe" / "tasks-vision" / "wasm" / "vision_wasm_internal.js",
+        "dest": VENDOR_DIR / "vision_wasm_internal.js",
     },
 ]
 

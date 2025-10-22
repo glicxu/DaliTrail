@@ -17,7 +17,7 @@ import { updateMetrics, restoreTrailState } from "./track.js";
 import { setLogger, logAppEvent as appEvent } from "/assets/js/utils.js";
 
 import "/assets/js/notes.js";
-import { init as initIdentifier, start as startIdentifier, stop as stopIdentifier } from "/assets/js/identifier.js";
+import { init as initIdentifier, start as startIdentifier, stop as stopIdentifier } from "/assets/js/identifier.js"
 import "/assets/js/events.js";
 import "/assets/js/search.js";
 
@@ -38,10 +38,10 @@ const trackView = document.querySelector('.track-view[data-view="tracks"]');
 const notesView = document.querySelector('.notes-view[data-view="notes"]');
 const eventsView = document.querySelector('.event-view[data-view="events"]');
 const searchView = document.querySelector('.search-view[data-view="search"]');
-const identifyView = document.querySelector('.identify-view[data-view="identify"]');
+const identifyView = document.querySelector('.identify-view[data-view="identify"]')
 
 const openLocationViewBtn = document.getElementById("open-location-view-btn");
-const openIdentifyViewBtn = document.getElementById("open-identify-view-btn");
+const openIdentifyViewBtn = document.getElementById("open-identify-view-btn")
 const openEventViewBtn = document.getElementById("open-event-view-btn");
 const openNotesViewBtn = document.getElementById("open-notes-view-btn");
 const openAboutViewBtn = document.getElementById("open-about-view-btn");
@@ -220,18 +220,18 @@ if (installSection) {
 }
 
 // ---------- Views ----------
-const VIEWS = { home: homeView, about: aboutView, location: locationView, "location-history": locationHistoryView, tracks: trackView, events: eventsView, notes: notesView, search: searchView, identify: identifyView };
+const VIEWS = { home: homeView, about: aboutView, location: locationView, "location-history": locationHistoryView, tracks: trackView, events: eventsView, notes: notesView, search: searchView, identify: identifyView }
 
 const showView = (view) => {
   if (!(view in VIEWS)) throw new Error(`Unknown view: ${view}`);
   const previousView = appRoot.dataset.view;
   appRoot.dataset.view = view;
 
-  // Stop identifier if we are navigating away from it
+  // Stop identifier if we are navigating away from it.
   if (previousView === "identify" && view !== "identify") {
     stopIdentifier();
   }
-  // Start identifier if we are navigating to it
+  // Start identifier if we are navigating to it.
   if (view === "identify" && previousView !== "identify") {
     startIdentifier();
   }
@@ -1335,7 +1335,7 @@ function safeInit() {
     logAppEvent("Opened Location view.");
   });
 
-  openIdentifyViewBtn?.addEventListener("click", () => {
+  openIdentifyViewBtn?.addEventListener("click", () => {;
     showView("identify");
     logAppEvent("Opened Identify view.");
   });
@@ -1392,7 +1392,7 @@ function safeInit() {
   // ---------- Init ----------
   updateInstallHint();
   updateMetrics();
-  initIdentifier(); // Initialize the identifier module first
+  initIdentifier();
   restoreTrailState();
   loadSavedLocations();
   renderLatestLocation();

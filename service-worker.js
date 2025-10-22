@@ -6,8 +6,8 @@
 // - Runtime cache for other same-origin GET requests
 // - Supports update flow via postMessage("SKIP_WAITING")
 
-const PRECACHE = "dalitrail-precache-v6";  // bump when asset list changes
-const RUNTIME  = "dalitrail-runtime-v6";
+const PRECACHE = "dalitrail-precache-v9";  // bump when asset list changes
+const RUNTIME  = "dalitrail-runtime-v9";
 
 const PRECACHE_ASSETS = [
   // App shell (precached so first launch can work offline)
@@ -34,13 +34,17 @@ const PRECACHE_ASSETS = [
   "/assets/js/search.js",
   "/assets/js/vendor/sql-wasm.js",
   "/assets/js/vendor/sql-wasm.wasm",
+  "/assets/js/vendor/vision_wasm_internal.js",
   "/assets/js/vendor/vision_wasm_internal.wasm",
   "/assets/js/vendor/tasks.min.js",
 
-  // NEW: Precache the plant identification model for offline use
-  "/assets/models/plant_classifier/plants_V1.tflite", // Canonical path
-  "/assets/models/plant_classifier/plant_labels.csv", // Canonical path
+  // Identifier feature + model
   "/assets/js/identifier.js",
+  "/assets/models/plants_V1.tflite",
+
+  // 3D sketch map libraries
+  "/vendor/three/0.160.0/three.module.min.js",
+  "/vendor/three/0.160.0/examples/jsm/controls/OrbitControls.js",
 ];
 
 self.addEventListener("install", (event) => {

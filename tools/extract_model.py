@@ -15,14 +15,15 @@ def main() -> int:
         description="Extracts a .tflite model from a .tar.gz archive."
     )
     parser.add_argument(
-        "archive_path",
+        "--archive-path",
         type=pathlib.Path,
-        help="Path to the downloaded .tar.gz model archive.",
+        default=pathlib.Path("assets/download/aiy-tflite-vision-classifier-plants-v1-v3.tar.gz"),
+        help="Path to the downloaded .tar.gz model archive. Defaults to assets/download/...",
     )
     parser.add_argument(
         "--output-dir",
         type=pathlib.Path,
-        default=pathlib.Path("assets/models/plant_classifier"),
+        default=pathlib.Path("assets/models"),
         help="Directory to save the extracted model file.",
     )
     parser.add_argument(

@@ -1,6 +1,8 @@
 // /assets/js/identifier.js
 // Handles the "Identify" view for real-time image classification using the device camera.
 
+import { FilesetResolver, ImageClassifier } from "/vendor/tasks.min.js";
+
 const identifyView = document.querySelector('.identify-view[data-view="identify"]');
 const videoElement = document.getElementById("camera-feed");
 const canvasElement = document.getElementById("camera-canvas");
@@ -8,8 +10,7 @@ const statusText = document.getElementById("identify-status");
 const resultsList = document.getElementById("identify-results-list");
 const saveIdentificationBtn = document.getElementById("save-identification-btn");
 
-const MODEL_PATH = "/assets/models/plant_classifier/plants_V1.tflite";
-const WASM_PATH = "/vendor/vision_wasm_internal.wasm";
+const MODEL_PATH = "/assets/models/plants_V1.tflite";
 
 let classifier = null;
 let animationFrameId = null;
@@ -31,34 +32,6 @@ const setStatus = (message, { isError = false } = {}) => {
   statusText.textContent = message;
   statusText.classList.toggle("error", isError);
   logIdentifierEvent(message);
-};
-
-/**
- * Waits for the MediaPipe Vision Task library to be loaded.
- * The script in index.html loads the library and attaches it to `window.vision`.
- * This function polls until that object is available.
- * @returns {Promise<void>} A promise that resolves when `window.vision` is available.
- */
-const waitForVisionTasks = () => {
-  return new Promise((resolve, reject) => {
-    if (window?.vision) {
-      return resolve();
-    }
-    // Poll every 100ms for the `vision` global
-    const interval = setInterval(() => {
-      if (window?.vision) {
-        clearInterval(interval);
-        clearTimeout(timeout);
-        resolve();
-      }
-    }, 100);
-
-    // Fail after 15 seconds if the library doesn't load
-    const timeout = setTimeout(() => {
-      clearInterval(interval);
-      reject(new Error("MediaPipe Vision library failed to load in time."));
-    }, 15000);
-  });
 };
 
 /**
@@ -128,9 +101,6 @@ const initializeClassifier = async () => {
 
   try {
     setStatus("Creating vision task fileset...");
-    await waitForVisionTasks();
-    const { FilesetResolver, ImageClassifier } = window.vision;
-
     // Use FilesetResolver to find the Wasm assets.
     const vision = await FilesetResolver.forVisionTasks(
       // path to the wasm files
@@ -140,14 +110,15 @@ const initializeClassifier = async () => {
     // Create the classifier with the new API
     classifier = await ImageClassifier.createFromOptions(
       vision, {
-      baseOptions: { modelAssetPath: MODEL_PATH },
+      baseOptions: {
+        modelAssetPath: MODEL_PATH,
+      },
       runningMode: "VIDEO",
       maxResults: 5,
     }
     );
     setStatus("Model loaded. Point camera at a plant.");
-    logIdentifierEvent("Classifier initialized successfully.");
-    logIdentifierEvent("Classifier initialized successfully from " + MODEL_PATH);
+    logIdentifierEvent(`Classifier initialized successfully from ${MODEL_PATH}`);
     // Start the loop once the model is ready
     classificationLoop();
   } catch (error) {
