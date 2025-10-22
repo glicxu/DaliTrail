@@ -24,6 +24,11 @@
   <link rel="modulepreload" href="/assets/js/main.js"/>
   <link rel="modulepreload" href="/assets/js/notes.js"/>
   <link rel="modulepreload" href="/assets/js/events.js"/>
+  <link rel="modulepreload" href="/assets/js/identifier.js"/>
+
+  <!-- TensorFlow.js and TFLite Task Library -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/tasks@0.0.1-alpha.8/dist/tasks.min.js" defer></script>
 </head>
 <body>
   <main class="app" data-view="home">
@@ -45,6 +50,7 @@
 
       <div class="home-actions">
         <button class="btn btn-primary" id="open-location-view-btn">Location</button>
+        <button class="btn btn-primary" id="open-identify-view-btn">Identify</button>
 
         <button class="btn btn-primary" id="open-event-view-btn">Event</button>
         <button class="btn btn-primary" id="open-notes-view-btn">Note</button>
@@ -286,9 +292,27 @@
         <p id="notes-status" class="status-text">No notes yet.</p>
     </section>
 
+    <section class="view identify-view" data-view="identify" hidden>
+      <h2>Identify Plant</h2>
+      <p class="section-copy">Point your camera at a plant to identify it.</p>
+
+      <div class="camera-container">
+        <video id="camera-feed" autoplay playsinline></video>
+        <canvas id="camera-canvas" hidden></canvas>
+      </div>
+
+      <div class="identify-results">
+        <p class="status-text" id="identify-status">Initializing camera...</p>
+        <ul id="identify-results-list"></ul>
+      </div>
+
+      <div class="identify-actions">
+        <button class="btn btn-primary" id="save-identification-btn" disabled>Save Top Result</button>
+      </div>
+    </section>
+
  </main>
 
   <script type="module" src="/assets/js/main.js"></script>
 </body>
 </html>
-

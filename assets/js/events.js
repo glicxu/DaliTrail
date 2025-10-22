@@ -344,6 +344,7 @@ const handleListClick = async (event) => {
 
 // ----- SAFE INIT -----
 const safeInitEvents = () => {
+  console.log("[events.js] Starting safeInitEvents...");
   try {
     eventsView = document.querySelector('.event-view[data-view="events"]');
     if (!eventsView) return;
@@ -365,8 +366,10 @@ const safeInitEvents = () => {
       resetForm();
       eventsStatus && (eventsStatus.textContent = "Edit cancelled.");
     });
+    console.log("[events.js] safeInitEvents completed successfully.");
   } catch (error) {
     console.error("events.js init failed:", error);
+    console.log("[events.js] safeInitEvents FAILED.");
   }
 };
 

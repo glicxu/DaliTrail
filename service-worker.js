@@ -34,6 +34,11 @@ const PRECACHE_ASSETS = [
   "/assets/js/search.js",
   "/assets/js/vendor/sql-wasm.js",
   "/assets/js/vendor/sql-wasm.wasm",
+
+  // NEW: Precache the plant identification model for offline use
+  "/assets/models/plant_classifier/plants_V1.tflite", // Canonical path
+  "/assets/models/plant_classifier/plant_labels.csv", // Canonical path
+  "/assets/js/identifier.js",
 ];
 
 self.addEventListener("install", (event) => {

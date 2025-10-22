@@ -14,6 +14,7 @@ import {
   getSunTimes,
   getMoonTimes,
   getMoonPhase,
+  logAppEvent,
 } from "/assets/js/utils.js";
 
 const LOCATIONS_KEY = "dalitrail:locations";
@@ -31,6 +32,8 @@ let locationHistoryStatus;
 let openTrackHistoryBtn;
 let tracksList;
 let tracksStatus;
+
+
 
 // Optional Sun/Moon card
 let sunCard, sunRiseEl, sunSetEl, moonCard, moonRiseEl, moonSetEl, moonPhaseEl;
@@ -355,6 +358,44 @@ const openSavedTrack = async (track) => {
     console.error("Unable to open saved track:", error);
     alert("Unable to open saved track.");
   }
+};
+
+/**
+ * Acquires the current GPS location and saves it with a note from an identification result.
+ * @param {{className: string, score: number}} result - The top prediction from the classifier.
+ */
+export const addLocationFromIdentification = (result) => {
+  if (!result || !result.className) {
+    logAppEvent("location.identify.save.skip", { reason: "No result provided" });
+    return Promise.reject(new Error("No identification result to save."));
+  }
+
+  logAppEvent("location.identify.save.start", { name: result.className });
+
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      return reject(new Error("Geolocation is not supported."));
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude, accuracy, altitude } = position.coords;
+        const note = `Identified: ${result.className} (${(result.score * 100).toFixed(1)}%)`;
+        const newLocation = { id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`, lat: latitude, lng: longitude, accuracy, altitude, note, timestamp: Date.now() };
+        savedLocations = [newLocation, ...savedLocations];
+        persistSavedLocations();
+        renderLatestLocation();
+        renderLocationHistory();
+        logAppEvent("location.identify.save.success", { name: result.className, id: newLocation.id });
+        resolve(newLocation);
+      },
+      (error) => {
+        logAppEvent("location.identify.save.error", { error: error.message });
+        reject(new Error(`Could not get GPS location: ${error.message}`));
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  });
 };
 
 /* ------------------------------------------------------------------------- */
@@ -1342,6 +1383,7 @@ async function ensureKmlImportHook() {
 /* SAFE INIT (prevents breaking other buttons)                                */
 /* ------------------------------------------------------------------------- */
 function safeInit() {
+  console.log("[location.js] Starting safeInit...");
   try {
     const locationView = document.querySelector('.location-view[data-view="location"]');
     if (!locationView) return; // do nothing if the view isn't in DOM
@@ -1353,6 +1395,7 @@ function safeInit() {
     openTrackHistoryBtn = document.getElementById("open-track-history-btn");
     locationsList = document.getElementById("locations-list");
     locationHistoryStatus = document.getElementById("location-history-status");
+
     tracksList = document.getElementById("tracks-list");
     tracksStatus = document.getElementById("tracks-status");
 
@@ -1424,9 +1467,11 @@ function safeInit() {
     renderLocationHistory();
     renderTrackHistory();
     updateLocationStatusSummary({ force: true });
+    console.log("[location.js] safeInit completed successfully.");
   } catch (err) {
     // Fail gracefully so Home buttons still work
     console.error("location.js init failed:", err);
+    console.log("[location.js] safeInit FAILED.");
   }
 }
 if (document.readyState === "loading") {
@@ -1434,9 +1479,3 @@ if (document.readyState === "loading") {
 } else {
   safeInit();
 }
-
-
-
-
-
-

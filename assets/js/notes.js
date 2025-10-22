@@ -163,6 +163,7 @@ function bindNoteEvents() {
 
 // ----- SAFE INIT -----
 function safeInitNotes() {
+  console.log("[notes.js] Starting safeInitNotes...");
   try {
     notesView   = document.querySelector('.view.notes-view[data-view="notes"]');
     if (!notesView) return; // no-op if notes view not present
@@ -201,8 +202,10 @@ function safeInitNotes() {
     loadNotes();
     bindNoteEvents();
     renderNotes();
+    console.log("[notes.js] safeInitNotes completed successfully.");
   } catch (err) {
     console.error("notes.js init failed:", err);
+    console.log("[notes.js] safeInitNotes FAILED.");
   }
 }
 

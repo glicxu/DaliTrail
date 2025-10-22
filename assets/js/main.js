@@ -7,6 +7,7 @@ import {
   renderLocationHistory,
   openSelectedLocations,
   shareSelectedLocations,
+  addLocationFromIdentification,
   deleteSelectedLocations,
 } from "./location.js";
 
@@ -16,6 +17,7 @@ import { updateMetrics, restoreTrailState } from "./track.js";
 import { setLogger, logAppEvent as appEvent } from "/assets/js/utils.js";
 
 import "/assets/js/notes.js";
+import { init as initIdentifier, start as startIdentifier, stop as stopIdentifier } from "/assets/js/identifier.js";
 import "/assets/js/events.js";
 import "/assets/js/search.js";
 
@@ -36,8 +38,10 @@ const trackView = document.querySelector('.track-view[data-view="tracks"]');
 const notesView = document.querySelector('.notes-view[data-view="notes"]');
 const eventsView = document.querySelector('.event-view[data-view="events"]');
 const searchView = document.querySelector('.search-view[data-view="search"]');
+const identifyView = document.querySelector('.identify-view[data-view="identify"]');
 
 const openLocationViewBtn = document.getElementById("open-location-view-btn");
+const openIdentifyViewBtn = document.getElementById("open-identify-view-btn");
 const openEventViewBtn = document.getElementById("open-event-view-btn");
 const openNotesViewBtn = document.getElementById("open-notes-view-btn");
 const openAboutViewBtn = document.getElementById("open-about-view-btn");
@@ -216,11 +220,22 @@ if (installSection) {
 }
 
 // ---------- Views ----------
-const VIEWS = { home: homeView, about: aboutView, location: locationView, "location-history": locationHistoryView, tracks: trackView, events: eventsView, notes: notesView, search: searchView };
+const VIEWS = { home: homeView, about: aboutView, location: locationView, "location-history": locationHistoryView, tracks: trackView, events: eventsView, notes: notesView, search: searchView, identify: identifyView };
 
 const showView = (view) => {
   if (!(view in VIEWS)) throw new Error(`Unknown view: ${view}`);
+  const previousView = appRoot.dataset.view;
   appRoot.dataset.view = view;
+
+  // Stop identifier if we are navigating away from it
+  if (previousView === "identify" && view !== "identify") {
+    stopIdentifier();
+  }
+  // Start identifier if we are navigating to it
+  if (view === "identify" && previousView !== "identify") {
+    startIdentifier();
+  }
+
   try {
     if (view === "about") localStorage.removeItem(LAST_VIEW_KEY);
     else localStorage.setItem(LAST_VIEW_KEY, view);
@@ -1051,6 +1066,11 @@ openLocationViewBtn?.addEventListener("click", () => {
   logAppEvent("Opened Location view.");
 });
 
+openIdentifyViewBtn?.addEventListener("click", () => {
+  showView("identify");
+  logAppEvent("Opened Identify view.");
+});
+
 openEventViewBtn?.addEventListener("click", () => {
   showView("events");
   logAppEvent("Opened Events view.");
@@ -1102,7 +1122,7 @@ historyDeleteBtn?.addEventListener("click", () => {
 
 backBtn?.addEventListener("click", () => {
   const current = appRoot?.dataset.view;
-  if (current === "location-history" || current === "tracks" || current === "search") showView("location");
+  if (current === "location-history" || current === "tracks" || current === "search" || current === "identify") showView("home");
   else showView("home");
 });
 
@@ -1253,14 +1273,25 @@ if (navigator.permissions?.query) {
 }
 
 // ---------- Init ----------
+console.log("[main.js] Starting initialization...");
 updateInstallHint();
+console.log("[main.js] > updateInstallHint() complete.");
 updateMetrics();
+console.log("[main.js] > updateMetrics() complete.");
+initIdentifier(); // Initialize the identifier module first
+console.log("[main.js] > initIdentifier() complete.");
 restoreTrailState();
+console.log("[main.js] > restoreTrailState() complete.");
 loadSavedLocations();
+console.log("[main.js] > loadSavedLocations() complete.");
 renderLatestLocation();
+console.log("[main.js] > renderLatestLocation() complete.");
 renderLocationHistory();
+console.log("[main.js] > renderLocationHistory() complete.");
 showView(loadInitialView());
+console.log("[main.js] > showView() complete.");
 refreshGeonamesStatus();
+console.log("[main.js] > refreshGeonamesStatus() complete.");
 
 if (!isSecure) {
   setStatus("Open this app via HTTPS (or localhost) to enable location tracking.");
