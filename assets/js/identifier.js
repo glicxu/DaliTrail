@@ -12,7 +12,7 @@ const saveIdentificationBtn = document.getElementById("save-identification-btn")
 
 const MODEL_PATH = "/assets/models/plants_V1.tflite";
 let lastAcceptTs = 0;           // ms since epoch
-const MIN_HOLD_MS = 1200;       // tweak: 1000–2000
+const MIN_HOLD_MS = 1000;       // Hold result for 1 second
 
 const isValidTop = (r) =>
   r && r.className && r.className !== 'None' && r.className.trim() !== '';
@@ -45,75 +45,38 @@ const setStatus = (message, { isError = false } = {}) => {
 const renderResults = (results) => {
   if (!resultsList) return;
 
-  const now = Date.now();
-
-  // If nothing new came in, respect the hold for currently shown valid result
   if (!results || results.length === 0) {
-    if (isValidTop(latestTopResult) && now - lastAcceptTs < MIN_HOLD_MS) {
-      return; // keep showing the last valid result during the hold window
-    }
     latestTopResult = null;
     resultsList.hidden = true;
     resultsList.innerHTML = "";
     return;
   }
 
-  // New candidate
+  // Prevent flickering. Only update if the new top result is different, or if
+  // it's the same but with a higher confidence score.
   const newTopResult = results[0];
-
-  // Ignore invalid/empty predictions outright
-  if (!isValidTop(newTopResult)) {
-    // But don't clear the UI if we're still within the hold window
-    if (isValidTop(latestTopResult) && now - lastAcceptTs < MIN_HOLD_MS) return;
-    latestTopResult = null;
-    resultsList.hidden = true;
-    resultsList.innerHTML = "";
+  if (latestTopResult &&
+      (newTopResult.className === latestTopResult.className && newTopResult.score <= latestTopResult.score ||
+       newTopResult.className === 'None')) {
     return;
   }
 
-  // If we already show a valid result, enforce the hold before any change
-  if (isValidTop(latestTopResult) && now - lastAcceptTs < MIN_HOLD_MS) {
-    // Optional tiny exception: if it's the SAME class and clearly higher score,
-    // you can still block to prevent jitter; remove this block if you want
-    // "instant better score" within the same class.
-    return;
-  }
-
-  // Past the hold window (or nothing shown yet) — apply your anti-flicker rule.
-  // Keep the top result unless the new one is meaningfully better or different.
-  // NOTE: if your scores are 0..1, a +5 margin is too large. Use +0.05 (i.e., +5%).
-  const lastScore = latestTopResult?.score ?? -Infinity;
-  const sameClass = latestTopResult && newTopResult.className === latestTopResult.className;
-  const IMPROVE_ABS = 0.05; // if scores are 0..1, require +0.05; change to 5 if scores are 0..100
-
-  if (latestTopResult) {
-    if (sameClass && newTopResult.score <= lastScore + IMPROVE_ABS) {
-      // same class but not meaningfully better → keep current
-      return;
-    }
-    // Different class? If you want extra stickiness, you can also require
-    // newTopResult.score > lastScore + IMPROVE_ABS here. Otherwise just allow change:
-    // if (newTopResult.score <= lastScore + IMPROVE_ABS) return;
-  }
-
-  // Accept and render
   resultsList.innerHTML = "";
   resultsList.hidden = false;
   latestTopResult = newTopResult;
-  lastAcceptTs = now;
-
   const fragment = document.createDocumentFragment();
   results.slice(0, 3).forEach((result) => {
     const li = document.createElement("li");
     const percentage = (result.score * 100).toFixed(1);
     li.innerHTML = `
-      <span class="prediction-name">${result.className || '—'}</span>
+      <span class="prediction-name">${result.className}</span>
       <span class="prediction-score">${percentage}%</span>
     `;
     fragment.appendChild(li);
   });
   resultsList.appendChild(fragment);
 };
+
 /**
  * The main classification loop that runs on each animation frame.
  */
